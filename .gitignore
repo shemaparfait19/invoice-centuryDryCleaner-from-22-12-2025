@@ -1,0 +1,13 @@
+﻿node_modules/
+.next/
+out/
+dist/
+.vercel/
+coverage/
+pnpm-store/
+*.log
+.env
+.env.*
+.env.local
+.DS_Store
+.vscode/

@@ -1,0 +1,27 @@
+📌 CENTURY DRY CLEANER - INSTRUCTIONS FOR NON-TECHNICAL USERS 📌
+
+🚀 HOW TO START THE APPLICATION:
+
+1. Double-click on the file named:
+   ✅ "INSTALL_AND_RUN.bat"
+   (If Windows asks for permission, click "Run anyway" or "More info" then "Run anyway")
+
+2. Wait for the installation to complete (it may take 5-10 minutes on first run)
+
+3. Once complete, your default web browser will open automatically with the application
+
+4. To stop the application, simply close the black command window
+
+🔧 TROUBLESHOOTING:
+
+If you see any errors:
+- Make sure Docker Desktop is running (you should see its icon in your system tray)
+- Restart your computer and try again
+- If still having issues, contact support with a screenshot of any error messages
+
+📂 YOUR DATA:
+- All your data is saved in a special folder called 'data' in this same location
+- Don't delete or move this folder, or you might lose your data!
+
+❓ NEED HELP?
+Contact: [Your Contact Information]
