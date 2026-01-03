@@ -634,6 +634,10 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
     const q = query.trim();
     if (!q) return [];
 
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const isUuid = uuidRegex.test(q);
+
     const selectJoined = `
           *,
           client:clients(*),
@@ -679,7 +683,16 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
 
     const clientIds = (matchingClients || []).map((c: any) => c.id);
 
-    const rowsById = await fetchPaged((base) => base.ilike("id", `%${q}%`));
+    let rowsById: any[] = [];
+    if (isUuid) {
+      rowsById = await fetchPaged((base) => base.eq("id", q));
+    } else {
+      try {
+        rowsById = await fetchPaged((base) => base.ilike("id", `%${q}%`));
+      } catch (e) {
+        rowsById = [];
+      }
+    }
 
     const rowsByClient =
       clientIds.length > 0
