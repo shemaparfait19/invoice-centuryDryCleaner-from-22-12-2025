@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,8 @@ import {
 } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency } from "@/lib/utils";
+import { toast } from "@/hooks/use-toast";
+import type { Invoice } from "@/lib/types";
 
 export function AdvancedReports() {
   const [selectedPeriod, setSelectedPeriod] = useState("daily");
@@ -64,51 +66,101 @@ export function AdvancedReports() {
     return d;
   }
 
-  const { invoices, clients } = useSupabaseStore();
+  const { fetchInvoicesForDateRange } = useSupabaseStore();
+
+  const [reportInvoices, setReportInvoices] = useState<Invoice[]>([]);
+  const [reportLoading, setReportLoading] = useState(false);
+
+  useEffect(() => {
+    const parseYmdUtc = (ymd: string, endOfDay: boolean) => {
+      const [y, m, d] = ymd.split("-").map((n) => Number(n));
+      if (!y || !m || !d) return new Date(0);
+      return new Date(
+        Date.UTC(y, m - 1, d, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0)
+      );
+    };
+
+    const parseYmUtcStart = (ym: string) => {
+      const [y, m] = ym.split("-").map((n) => Number(n));
+      if (!y || !m) return new Date(0);
+      return new Date(Date.UTC(y, m - 1, 1, 0, 0, 0, 0));
+    };
+
+    const computeFromTo = () => {
+      const now = new Date();
+
+      if (selectedPeriod === "daily") {
+        const from = parseYmdUtc(selectedDate, false);
+        const to = parseYmdUtc(selectedDate, true);
+        return { fromIso: from.toISOString(), toIso: to.toISOString() };
+      }
+
+      if (selectedPeriod === "weekly") {
+        const from = parseYmdUtc(selectedWeekStart, false);
+        const to = new Date(from);
+        to.setUTCDate(to.getUTCDate() + 6);
+        to.setUTCHours(23, 59, 59, 999);
+        return { fromIso: from.toISOString(), toIso: to.toISOString() };
+      }
+
+      if (selectedPeriod === "monthly") {
+        const first = parseYmUtcStart(selectedMonth);
+        const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+        return { fromIso: first.toISOString(), toIso: last.toISOString() };
+      }
+
+      if (selectedPeriod === "yearly") {
+        const y = Number(selectedYear);
+        const first = new Date(Date.UTC(y, 0, 1, 0, 0, 0, 0));
+        const last = new Date(Date.UTC(y, 11, 31, 23, 59, 59, 999));
+        return { fromIso: first.toISOString(), toIso: last.toISOString() };
+      }
+
+      if (selectedPeriod === "custom") {
+        const from = parseYmdUtc(customStartDate, false);
+        const to = parseYmdUtc(customEndDate, true);
+        return { fromIso: from.toISOString(), toIso: to.toISOString() };
+      }
+
+      const from = new Date(0);
+      const to = now;
+      return { fromIso: from.toISOString(), toIso: to.toISOString() };
+    };
+
+    const run = async () => {
+      try {
+        setReportLoading(true);
+        const { fromIso, toIso } = computeFromTo();
+        const data = await fetchInvoicesForDateRange(fromIso, toIso);
+        setReportInvoices(data as any[]);
+      } catch (error: any) {
+        setReportInvoices([]);
+        toast({
+          title: "Failed to load report data",
+          description: error?.message || "Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setReportLoading(false);
+      }
+    };
+
+    run();
+  }, [
+    selectedPeriod,
+    selectedDate,
+    selectedWeekStart,
+    selectedMonth,
+    selectedYear,
+    customStartDate,
+    customEndDate,
+    fetchInvoicesForDateRange,
+  ]);
 
   // Filter invoices based on selected period
   const filteredInvoices = useMemo(() => {
-    switch (selectedPeriod) {
-      case "daily":
-        return invoices.filter((invoice) => {
-          const invoiceDate = new Date(invoice.createdAt)
-            .toISOString()
-            .split("T")[0];
-          return invoiceDate === selectedDate;
-        });
-      case "weekly":
-        const weekStart = new Date(selectedWeekStart);
-        const weekEnd = getWeekEnd(selectedWeekStart);
-        return invoices.filter((invoice) => {
-          const invoiceDate = new Date(invoice.createdAt);
-          return invoiceDate >= weekStart && invoiceDate <= weekEnd;
-        });
-      case "monthly":
-        return invoices.filter((invoice) => {
-          const invoiceMonth = new Date(invoice.createdAt)
-            .toISOString()
-            .slice(0, 7);
-          return invoiceMonth === selectedMonth;
-        });
-      case "yearly":
-        return invoices.filter((invoice) => {
-          const invoiceYear = new Date(invoice.createdAt)
-            .getFullYear()
-            .toString();
-          return invoiceYear === selectedYear;
-        });
-      case "custom":
-        const startDate = new Date(customStartDate);
-        const endDate = new Date(customEndDate);
-        endDate.setHours(23, 59, 59, 999); // Include entire end date
-        return invoices.filter((invoice) => {
-          const invoiceDate = new Date(invoice.createdAt);
-          return invoiceDate >= startDate && invoiceDate <= endDate;
-        });
-      default:
-        return invoices;
-    }
-  }, [invoices, selectedPeriod, selectedDate, selectedWeekStart, selectedMonth, selectedYear, customStartDate, customEndDate]);
+    return reportInvoices;
+  }, [reportInvoices]);
 
   // Calculate comprehensive statistics
   const stats = useMemo(() => {
@@ -411,6 +463,7 @@ export function AdvancedReports() {
             onClick={exportReport}
             variant="outline"
             className="w-full sm:w-auto"
+            disabled={reportLoading}
           >
             <Download className="h-4 w-4 mr-2" />
             Export Excel

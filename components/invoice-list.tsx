@@ -52,6 +52,9 @@ interface InvoiceListProps {
 
 export function InvoiceList({ onEdit }: InvoiceListProps) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [isSearchingDb, setIsSearchingDb] = useState(false);
+  const [searchResults, setSearchResults] = useState<Invoice[]>([]);
+  const [isSearchingLoading, setIsSearchingLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [paidFilter, setPaidFilter] = useState<string>("all");
   const [deleteInvoiceId, setDeleteInvoiceId] = useState<string | null>(null);
@@ -73,9 +76,12 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
     loadMoreInvoices,
     allInvoicesLoaded,
     isLoadingMore,
+    searchInvoicesDb,
   } = useSupabaseStore();
 
-  const filteredInvoices = invoices
+  const activeInvoices = isSearchingDb ? searchResults : invoices;
+
+  const filteredInvoices = activeInvoices
     .filter((invoice) => {
       const matchesSearch =
         invoice.client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -97,6 +103,13 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
 
   // Setup IntersectionObserver for infinite scroll
   useEffect(() => {
+    if (isSearchingDb) {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+      return;
+    }
+
     if (observerRef.current) {
       observerRef.current.disconnect();
     }
@@ -123,7 +136,37 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
         observerRef.current.disconnect();
       }
     };
-  }, [allInvoicesLoaded, isLoadingMore, loadMoreInvoices]);
+  }, [allInvoicesLoaded, isLoadingMore, isSearchingDb, loadMoreInvoices]);
+
+  const handleDbSearch = async () => {
+    const q = searchTerm.trim();
+    if (!q) {
+      setIsSearchingDb(false);
+      setSearchResults([]);
+      return;
+    }
+
+    try {
+      setIsSearchingLoading(true);
+      setIsSearchingDb(true);
+      const results = await searchInvoicesDb(q);
+      setSearchResults(results);
+    } catch (error: any) {
+      toast({
+        title: "Search failed",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSearchingLoading(false);
+    }
+  };
+
+  const clearDbSearch = () => {
+    setIsSearchingDb(false);
+    setSearchResults([]);
+    setSearchTerm("");
+  };
 
   const handleDelete = async (invoiceId: string) => {
     try {
@@ -211,9 +254,30 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
               placeholder="Search invoices..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleDbSearch();
+                }
+              }}
               className="pl-10 w-full"
             />
           </div>
+          <Button
+            onClick={handleDbSearch}
+            disabled={isSearchingLoading}
+            className="w-full sm:w-auto"
+          >
+            {isSearchingLoading ? "Searching..." : "Search"}
+          </Button>
+          {isSearchingDb && (
+            <Button
+              variant="outline"
+              onClick={clearDbSearch}
+              className="w-full sm:w-auto"
+            >
+              Clear
+            </Button>
+          )}
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-full sm:w-40">
               <SelectValue placeholder="Filter by status" />
@@ -613,7 +677,7 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
           )}
 
           {/* Infinite Scroll Trigger */}
-          {filteredInvoices.length > 0 && (
+          {filteredInvoices.length > 0 && !isSearchingDb && (
             <div ref={loadMoreRef} className="py-4">
               {isLoadingMore && (
                 <div className="flex justify-center items-center py-4">

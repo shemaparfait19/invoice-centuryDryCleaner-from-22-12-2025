@@ -37,6 +37,8 @@ interface SupabaseStore {
   // Invoice operations
   loadInvoices: () => Promise<void>;
   loadMoreInvoices: () => Promise<void>;
+  searchInvoicesDb: (query: string) => Promise<Invoice[]>;
+  fetchInvoicesForDateRange: (fromIso: string, toIso: string) => Promise<Invoice[]>;
   addInvoice: (
     invoice: Omit<Invoice, "updatedAt"> & { createdAt?: string }
   ) => Promise<void>;
@@ -626,6 +628,185 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
       set({ isLoadingMore: false });
       throw error;
     }
+  },
+
+  searchInvoicesDb: async (query: string) => {
+    const q = query.trim();
+    if (!q) return [];
+
+    const selectJoined = `
+          *,
+          client:clients(*),
+          invoice_items(*)
+        `;
+
+    const pageSize = 1000;
+
+    const fetchPaged = async (build: (base: any) => any) => {
+      const allRows: any[] = [];
+      let page = 0;
+
+      for (;;) {
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+
+        const base = supabase
+          .from("invoices")
+          .select(selectJoined)
+          .order("created_at", { ascending: false })
+          .range(from, to);
+
+        const { data, error } = await build(base);
+        if (error) throw new Error(error.message);
+        if (!data || data.length === 0) break;
+
+        allRows.push(...data);
+        if (data.length < pageSize) break;
+        page++;
+      }
+
+      return allRows;
+    };
+
+    const { data: matchingClients, error: clientsError } = await supabase
+      .from("clients")
+      .select("id")
+      .or(`name.ilike.%${q}%,phone.ilike.%${q}%`);
+
+    if (clientsError) {
+      throw new Error(clientsError.message);
+    }
+
+    const clientIds = (matchingClients || []).map((c: any) => c.id);
+
+    const rowsById = await fetchPaged((base) => base.ilike("id", `%${q}%`));
+
+    const rowsByClient =
+      clientIds.length > 0
+        ? await fetchPaged((base) => base.in("client_id", clientIds))
+        : [];
+
+    const merged = new Map<string, any>();
+    [...rowsById, ...rowsByClient].forEach((row) => {
+      if (row?.id) merged.set(row.id, row);
+    });
+
+    const invoices: Invoice[] = Array.from(merged.values())
+      .map((invoice: any) => {
+        if (!invoice.client) return null;
+        return {
+          id: invoice.id,
+          client: {
+            id: invoice.client.id,
+            name: invoice.client.name,
+            phone: invoice.client.phone,
+            address: invoice.client.address || "",
+            visitCount: invoice.client.visit_count || 0,
+            rewardClaimed: invoice.client.reward_claimed || false,
+            lastVisit: invoice.client.last_visit || new Date().toISOString(),
+            createdAt: invoice.client.created_at,
+            updatedAt: invoice.client.updated_at,
+          },
+          items: (invoice.invoice_items || []).map((item: any) => ({
+            id: item.id,
+            description: item.description,
+            quantity: item.quantity,
+            unitPrice: parseFloat(item.unit_price),
+            totalPrice: parseFloat(item.total_price),
+          })),
+          total: parseFloat(invoice.total),
+          paymentMethod: invoice.payment_method,
+          paid: invoice.paid ?? false,
+          status: invoice.status,
+          pickupDate: invoice.pickup_date || undefined,
+          pickupTime: invoice.pickup_time || undefined,
+          notes: invoice.notes || undefined,
+          createdByName: invoice.created_by_name || undefined,
+          createdByPhone: invoice.created_by_phone || undefined,
+          createdAt: invoice.created_at,
+          updatedAt: invoice.updated_at,
+        };
+      })
+      .filter(Boolean)
+      .sort(
+        (a: Invoice, b: Invoice) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      ) as Invoice[];
+
+    return invoices;
+  },
+
+  fetchInvoicesForDateRange: async (fromIso: string, toIso: string) => {
+    const selectJoined = `
+          *,
+          client:clients(*),
+          invoice_items(*)
+        `;
+
+    const pageSize = 1000;
+    const allRows: any[] = [];
+    let page = 0;
+
+    for (;;) {
+      const from = page * pageSize;
+      const to = from + pageSize - 1;
+
+      let query = supabase
+        .from("invoices")
+        .select(selectJoined)
+        .order("created_at", { ascending: false })
+        .gte("created_at", fromIso)
+        .lte("created_at", toIso)
+        .range(from, to);
+
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) break;
+
+      allRows.push(...data);
+      if (data.length < pageSize) break;
+      page++;
+    }
+
+    const invoices: Invoice[] = allRows
+      .map((invoice: any) => {
+        if (!invoice.client) return null;
+        return {
+          id: invoice.id,
+          client: {
+            id: invoice.client.id,
+            name: invoice.client.name,
+            phone: invoice.client.phone,
+            address: invoice.client.address || "",
+            visitCount: invoice.client.visit_count || 0,
+            rewardClaimed: invoice.client.reward_claimed || false,
+            lastVisit: invoice.client.last_visit || new Date().toISOString(),
+            createdAt: invoice.client.created_at,
+            updatedAt: invoice.client.updated_at,
+          },
+          items: (invoice.invoice_items || []).map((item: any) => ({
+            id: item.id,
+            description: item.description,
+            quantity: item.quantity,
+            unitPrice: parseFloat(item.unit_price),
+            totalPrice: parseFloat(item.total_price),
+          })),
+          total: parseFloat(invoice.total),
+          paymentMethod: invoice.payment_method,
+          paid: invoice.paid ?? false,
+          status: invoice.status,
+          pickupDate: invoice.pickup_date || undefined,
+          pickupTime: invoice.pickup_time || undefined,
+          notes: invoice.notes || undefined,
+          createdByName: invoice.created_by_name || undefined,
+          createdByPhone: invoice.created_by_phone || undefined,
+          createdAt: invoice.created_at,
+          updatedAt: invoice.updated_at,
+        };
+      })
+      .filter(Boolean) as Invoice[];
+
+    return invoices;
   },
 
   addInvoice: async (invoiceData) => {
