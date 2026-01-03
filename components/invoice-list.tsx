@@ -83,11 +83,10 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
 
   const filteredInvoices = activeInvoices
     .filter((invoice) => {
-      const matchesSearch = isSearchingDb
-        ? true
-        : invoice.client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          invoice.client.phone.includes(searchTerm) ||
-          invoice.id.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesSearch =
+        invoice.client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        invoice.client.phone.includes(searchTerm) ||
+        invoice.id.toLowerCase().includes(searchTerm.toLowerCase());
 
       const matchesStatus =
         statusFilter === "all" || invoice.status === statusFilter;

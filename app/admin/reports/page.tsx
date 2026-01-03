@@ -57,11 +57,48 @@ export default function AdminReports() {
         to = endDate.toISOString();
       }
 
-      let query = supabase.from("invoices").select("*");
-      if (from) query = query.gte("created_at", from);
-      if (to) query = query.lte("created_at", to);
-      const { data } = await query.order("created_at", { ascending: false });
-      setRows(data || []);
+      // Fetch ALL invoices with pagination to avoid Supabase row limit
+      const pageSize = 1000;
+      const allInvoices: any[] = [];
+      let page = 0;
+
+      try {
+        for (;;) {
+          const fromRange = page * pageSize;
+          const toRange = fromRange + pageSize - 1;
+          
+          let query = supabase
+            .from("invoices")
+            .select("*")
+            .order("created_at", { ascending: false })
+            .range(fromRange, toRange);
+            
+          if (from) query = query.gte("created_at", from);
+          if (to) query = query.lte("created_at", to);
+          
+          const { data, error } = await query;
+          
+          if (error) {
+            console.error("Error fetching invoices:", error);
+            break;
+          }
+          
+          if (!data || data.length === 0) break;
+          
+          allInvoices.push(...data);
+          
+          // If we got less than pageSize, we've reached the end
+          if (data.length < pageSize) break;
+          
+          page++;
+        }
+        
+        setRows(allInvoices);
+        console.log(`Admin Reports: Loaded ${allInvoices.length} invoices with pagination`);
+      } catch (error) {
+        console.error("Error in admin reports fetch:", error);
+        setRows([]);
+      }
 
       // Fetch clients and items for Excel export
       const { data: clientsData } = await supabase.from("clients").select("*");
