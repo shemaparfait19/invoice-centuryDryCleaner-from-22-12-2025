@@ -41,6 +41,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useRouter } from "next/navigation";
 import type { Client } from "@/lib/types";
 
 interface ClientFormData {
@@ -50,6 +51,7 @@ interface ClientFormData {
 }
 
 export function ClientManagement() {
+  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
@@ -109,7 +111,7 @@ export function ClientManagement() {
         await updateClient(editingClient.id, {
           name: formData.name.trim(),
           phone: formData.phone.trim(),
-          address: formData.address.trim() || null,
+          address: formData.address.trim() || undefined,
         });
         toast({ title: "Client updated successfully!" });
       } else {
@@ -331,6 +333,15 @@ export function ClientManagement() {
 
                 {/* Action Buttons */}
                 <div className="flex flex-wrap gap-2 pt-4 border-t">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => router.push(`/clients/${client.id}`)}
+                    className="flex-1 sm:flex-none"
+                  >
+                    <Users className="h-4 w-4 mr-2" />
+                    Details
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
