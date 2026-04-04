@@ -552,12 +552,12 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                 </tr>
               </thead>
               <tbody>
-                {filteredInvoices.map((invoice) => (
+                {filteredInvoices.map((invoice, index) => (
                   <React.Fragment key={invoice.id}>
                     <ContextMenu>
                       <ContextMenuTrigger asChild>
                         <tr 
-                          className="border-b hover:bg-muted/50 cursor-pointer" 
+                          className={`hover:bg-muted/50 cursor-pointer border-b ${index > 0 ? "border-t-[3px] border-gray-300" : ""}`} 
                           onClick={() => setViewInvoice(invoice)}
                         >
                           <td className="p-4 font-mono text-sm">{invoice.id}</td>
