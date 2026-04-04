@@ -29,6 +29,7 @@ export interface Invoice {
   pickupDate?: string;
   pickupTime?: string;
   notes?: string;
+  section?: string;
   createdByName?: string;
   createdByPhone?: string;
   createdAt: string;

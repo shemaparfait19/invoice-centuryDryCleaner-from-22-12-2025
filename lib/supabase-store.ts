@@ -62,7 +62,8 @@ interface SupabaseStore {
     status: "pending" | "completed" | "cancelled"
   ) => Promise<void>;
   updateInvoicePaid: (id: string, paid: boolean) => Promise<void>;
-  updateInvoicePaymentMethod: (id: string, method: string) => Promise<void>;
+  updateInvoicePaymentMethod: (id: string, paymentMethod: string) => Promise<void>;
+  updateInvoiceSection: (id: string, section: string | null) => Promise<void>;
 }
 
 export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
@@ -507,6 +508,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             pickupDate: invoice.pickup_date || undefined,
             pickupTime: invoice.pickup_time || undefined,
             notes: invoice.notes || undefined,
+            section: invoice.section || undefined,
             createdByName: invoice.created_by_name || undefined,
             createdByPhone: invoice.created_by_phone || undefined,
             createdAt: invoice.created_at,
@@ -603,6 +605,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             pickupDate: invoice.pickup_date || undefined,
             pickupTime: invoice.pickup_time || undefined,
             notes: invoice.notes || undefined,
+            section: invoice.section || undefined,
             createdByName: invoice.created_by_name || undefined,
             createdByPhone: invoice.created_by_phone || undefined,
             createdAt: invoice.created_at,
@@ -721,17 +724,19 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           pickupDate: invoice.pickup_date || undefined,
           pickupTime: invoice.pickup_time || undefined,
           notes: invoice.notes || undefined,
+          section: invoice.section || undefined,
           createdByName: invoice.created_by_name || undefined,
           createdByPhone: invoice.created_by_phone || undefined,
           createdAt: invoice.created_at,
           updatedAt: invoice.updated_at,
         };
       })
-      .filter(Boolean)
-      .sort(
-        (a: Invoice, b: Invoice) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      ) as Invoice[];
+      .filter(Boolean) as Invoice[];
+      
+    invoices.sort(
+      (a: Invoice, b: Invoice) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
 
     return invoices;
   },
@@ -798,6 +803,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           pickupDate: invoice.pickup_date || undefined,
           pickupTime: invoice.pickup_time || undefined,
           notes: invoice.notes || undefined,
+          section: invoice.section || undefined,
           createdByName: invoice.created_by_name || undefined,
           createdByPhone: invoice.created_by_phone || undefined,
           createdAt: invoice.created_at,
@@ -834,6 +840,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         pickup_date: invoiceData.pickupDate || null,
         pickup_time: invoiceData.pickupTime || null,
         notes: invoiceData.notes || null,
+        section: invoiceData.section || null,
         created_by_name: get().currentUserName || null,
         created_by_phone: get().currentUserPhone || null,
       });
@@ -851,6 +858,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           pickup_date: invoiceData.pickupDate || null,
           pickup_time: invoiceData.pickupTime || null,
           notes: invoiceData.notes || null,
+          section: invoiceData.section || null,
           created_by_name: get().currentUserName || null,
           created_by_phone: get().currentUserPhone || null,
           // Allow overriding created_at when provided
@@ -964,6 +972,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
       if (updates.pickupTime !== undefined)
         updateData.pickup_time = updates.pickupTime || null;
       if (updates.notes !== undefined) updateData.notes = updates.notes || null;
+      if (updates.section !== undefined) updateData.section = updates.section || null;
       if ((updates as any).createdAt)
         updateData.created_at = (updates as any).createdAt;
 
@@ -1080,6 +1089,54 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
       set({ error: errorMessage, loading: false });
       toast({
         title: "Error deleting invoice",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
+  },
+
+  updateInvoiceSection: async (id, section) => {
+    try {
+      set({ loading: true, error: null });
+
+      const { error: invoiceError } = await supabase
+        .from("invoices")
+        .update({ section })
+        .eq("id", id);
+
+      if (invoiceError) {
+        throw new Error(`Failed to update section: ${invoiceError.message}`);
+      }
+
+      set((state) => ({
+        invoices: state.invoices.map((inv) =>
+          inv.id === id ? { ...inv, section: section || undefined } : inv
+        ),
+        loading: false,
+      }));
+
+      // audit log
+      try {
+        const { currentUserPhone, currentUserName } = get();
+        await supabase.from("audit_logs").insert({
+          action: "update_section",
+          entity_type: "invoice",
+          entity_id: id,
+          actor_phone: currentUserPhone,
+          actor_name: currentUserName,
+          changes: { section },
+        });
+      } catch {}
+
+      toast({
+        title: "Section updated successfully!",
+      });
+    } catch (error: any) {
+      console.error("Error updating section:", error);
+      const errorMessage = error.message || "Failed to update section";
+      set({ error: errorMessage, loading: false });
+      toast({
+        title: "Error updating section",
         description: errorMessage,
         variant: "destructive",
       });

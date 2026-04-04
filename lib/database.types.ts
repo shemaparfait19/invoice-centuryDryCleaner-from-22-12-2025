@@ -115,6 +115,7 @@ export interface Database {
           created_by_name: string | null;
           created_by_phone: string | null;
           paid: boolean | null;
+          section: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -130,6 +131,7 @@ export interface Database {
           created_by_name?: string | null;
           created_by_phone?: string | null;
           paid?: boolean | null;
+          section?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -145,6 +147,7 @@ export interface Database {
           created_by_name?: string | null;
           created_by_phone?: string | null;
           paid?: boolean | null;
+          section?: string | null;
           created_at?: string;
           updated_at?: string;
         };

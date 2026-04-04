@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,6 +43,7 @@ import {
   Share,
   Eye,
   StickyNote,
+  Tags,
 } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency } from "@/lib/utils";
@@ -61,6 +68,8 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
   const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
   const [notesInvoice, setNotesInvoice] = useState<Invoice | null>(null);
   const [notesText, setNotesText] = useState("");
+  const [sectionInvoice, setSectionInvoice] = useState<Invoice | null>(null);
+  const [sectionSelected, setSectionSelected] = useState<string>("");
 
   // IntersectionObserver for infinite scroll
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -77,6 +86,7 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
     allInvoicesLoaded,
     isLoadingMore,
     searchInvoicesDb,
+    updateInvoiceSection,
   } = useSupabaseStore();
 
   const activeInvoices = isSearchingDb ? searchResults : invoices;
@@ -224,6 +234,28 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
     } catch (error) {
       toast({
         title: "Error updating notes",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleOpenSection = (invoice: Invoice) => {
+    setSectionInvoice(invoice);
+    setSectionSelected(invoice.section || "");
+  };
+
+  const handleSaveSection = async () => {
+    if (!sectionInvoice) return;
+
+    try {
+      await updateInvoiceSection(sectionInvoice.id, sectionSelected.trim() || null);
+      setSectionInvoice(null);
+      setSectionSelected("");
+      toast({ title: "Section assigned successfully!" });
+    } catch (error) {
+      toast({
+        title: "Error updating section",
         description: "Please try again.",
         variant: "destructive",
       });
@@ -383,6 +415,17 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                     </div>
                   </div>
                 )}
+                
+                {invoice.section && (
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 -mx-2">
+                    <div className="flex items-center gap-2">
+                      <Tags className="h-4 w-4 text-purple-600 flex-shrink-0" />
+                      <p className="text-sm font-medium text-purple-800">
+                        Section: {invoice.section}
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex flex-wrap gap-2">
                   <Select
@@ -470,6 +513,15 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                     Notes
                   </Button>
                   <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleOpenSection(invoice)}
+                    className="flex-1 sm:flex-none"
+                  >
+                    <Tags className="h-4 w-4 mr-2" />
+                    Assign Section
+                  </Button>
+                  <Button
                     variant="destructive"
                     size="sm"
                     onClick={() => setDeleteInvoiceId(invoice.id)}
@@ -495,143 +547,138 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                   <th className="text-left p-4">Amount</th>
                   <th className="text-left p-4">Status</th>
                   <th className="text-left p-4">Payment</th>
+                  <th className="text-left p-4">Section</th>
                   <th className="text-left p-4">Notes</th>
-                  <th className="text-right p-4">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredInvoices.map((invoice) => (
-                  <>
-                    <tr key={invoice.id} className="border-b hover:bg-muted/50">
-                      <td className="p-4 font-mono text-sm">{invoice.id}</td>
-                      <td className="p-4">
-                        <div>
-                          <p className="font-medium">{invoice.client.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {invoice.client.phone}
-                          </p>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        {new Date(invoice.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="p-4 text-sm text-muted-foreground">
-                        {invoice.createdByName || "-"}
-                      </td>
-                      <td className="p-4 font-semibold">
-                        {formatCurrency(invoice.total)}
-                      </td>
-                      <td className="p-4">
-                        <Badge className={getStatusColor(invoice.status)}>
-                          {invoice.status}
-                        </Badge>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-2">
-                          <Select
-                            value={invoice.paymentMethod}
-                            onValueChange={(val) =>
-                              updateInvoicePaymentMethod(invoice.id, val)
-                            }
-                          >
-                            <SelectTrigger className="w-36 h-8">
-                              <SelectValue placeholder="Method" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="UNPAID">
-                                Unpaid / On Account
-                              </SelectItem>
-                              <SelectItem value="CASH">Cash</SelectItem>
-                              <SelectItem value="MOMO">Mobile Money</SelectItem>
-                              <SelectItem value="BANK">
-                                Bank Transfer
-                              </SelectItem>
-                              <SelectItem value="CARD">Card Payment</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <button
-                            className={`text-xs px-2 py-1 rounded border ${
-                              invoice.paid
-                                ? "border-green-300 text-green-700"
-                                : "border-yellow-300 text-yellow-700"
-                            }`}
-                            onClick={() =>
-                              updateInvoicePaid(invoice.id, !invoice.paid)
-                            }
-                          >
-                            {invoice.paid ? "Paid" : "Unpaid"}
-                          </button>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        {invoice.notes && (
-                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 max-w-xs">
-                            <div className="flex items-start gap-2">
-                              <StickyNote className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-medium text-blue-800 mb-1">
-                                  Notes
-                                </p>
-                                <p
-                                  className="text-xs text-blue-700 truncate"
-                                  title={invoice.notes}
-                                >
-                                  {invoice.notes}
-                                </p>
-                              </div>
+                  <React.Fragment key={invoice.id}>
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <tr 
+                          className="border-b hover:bg-muted/50 cursor-pointer" 
+                          onClick={() => setViewInvoice(invoice)}
+                        >
+                          <td className="p-4 font-mono text-sm">{invoice.id}</td>
+                          <td className="p-4">
+                            <div>
+                              <p className="font-medium">{invoice.client.name}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {invoice.client.phone}
+                              </p>
                             </div>
-                          </div>
-                        )}
-                      </td>
-                      <td className="p-4 text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={() => setViewInvoice(invoice)}
-                            >
-                              <Eye className="h-4 w-4 mr-2" />
-                              View
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => onEdit(invoice.id)}
-                            >
-                              <Edit className="h-4 w-4 mr-2" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => handleDownloadPDF(invoice)}
-                            >
-                              <Download className="h-4 w-4 mr-2" />
-                              Download PDF
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => handleShareWhatsApp(invoice)}
-                            >
-                              <Share className="h-4 w-4 mr-2" />
-                              Share WhatsApp
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => handleOpenNotes(invoice)}
-                            >
-                              <StickyNote className="h-4 w-4 mr-2" />
-                              Notes
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setDeleteInvoiceId(invoice.id)}
-                              className="text-red-600"
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </td>
-                    </tr>
+                          </td>
+                          <td className="p-4">
+                            {new Date(invoice.createdAt).toLocaleDateString()}
+                          </td>
+                          <td className="p-4 text-sm text-muted-foreground">
+                            {invoice.createdByName || "-"}
+                          </td>
+                          <td className="p-4 font-semibold">
+                            {formatCurrency(invoice.total)}
+                          </td>
+                          <td className="p-4">
+                            <Badge className={getStatusColor(invoice.status)}>
+                              {invoice.status}
+                            </Badge>
+                          </td>
+                          <td className="p-4">
+                            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                              <Select
+                                value={invoice.paymentMethod}
+                                onValueChange={(val) =>
+                                  updateInvoicePaymentMethod(invoice.id, val)
+                                }
+                              >
+                                <SelectTrigger className="w-36 h-8">
+                                  <SelectValue placeholder="Method" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="UNPAID">
+                                    Unpaid / On Account
+                                  </SelectItem>
+                                  <SelectItem value="CASH">Cash</SelectItem>
+                                  <SelectItem value="MOMO">Mobile Money</SelectItem>
+                                  <SelectItem value="BANK">
+                                    Bank Transfer
+                                  </SelectItem>
+                                  <SelectItem value="CARD">Card Payment</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <button
+                                className={`text-xs px-2 py-1 rounded border ${
+                                  invoice.paid
+                                    ? "border-green-300 text-green-700"
+                                    : "border-yellow-300 text-yellow-700"
+                                }`}
+                                onClick={() =>
+                                  updateInvoicePaid(invoice.id, !invoice.paid)
+                                }
+                              >
+                                {invoice.paid ? "Paid" : "Unpaid"}
+                              </button>
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            <div className="flex flex-col gap-1 items-start">
+                               <Badge variant="outline" className={`bg-purple-50 text-purple-700 ${!invoice.section ? 'invisible' : ''}`}>
+                                 {invoice.section || 'N/A'}
+                               </Badge>
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            {invoice.notes && (
+                              <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 max-w-xs">
+                                <div className="flex items-start gap-2">
+                                  <StickyNote className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium text-blue-800 mb-1">
+                                      Notes
+                                    </p>
+                                    <p
+                                      className="text-xs text-blue-700 truncate"
+                                      title={invoice.notes}
+                                    >
+                                      {invoice.notes}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-48">
+                        <ContextMenuItem onClick={(e) => { e.stopPropagation(); onEdit(invoice.id); }}>
+                          <Edit className="h-4 w-4 mr-2" />
+                          Edit Invoice
+                        </ContextMenuItem>
+                        <ContextMenuItem onClick={(e) => { e.stopPropagation(); handleOpenSection(invoice); }}>
+                          <Tags className="h-4 w-4 mr-2" />
+                          Assign Section
+                        </ContextMenuItem>
+                        <ContextMenuItem onClick={(e) => { e.stopPropagation(); handleDownloadPDF(invoice); }}>
+                          <Download className="h-4 w-4 mr-2" />
+                          Download PDF
+                        </ContextMenuItem>
+                        <ContextMenuItem onClick={(e) => { e.stopPropagation(); handleShareWhatsApp(invoice); }}>
+                          <Share className="h-4 w-4 mr-2" />
+                          Share WhatsApp
+                        </ContextMenuItem>
+                        <ContextMenuItem onClick={(e) => { e.stopPropagation(); handleOpenNotes(invoice); }}>
+                          <StickyNote className="h-4 w-4 mr-2" />
+                          Edit Notes
+                        </ContextMenuItem>
+                        <ContextMenuItem 
+                          onClick={(e) => { e.stopPropagation(); setDeleteInvoiceId(invoice.id); }}
+                          className="text-red-600"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
                     <tr
                       key={`${invoice.id}-status`}
                       className="border-b bg-gray-50/50"
@@ -664,7 +711,7 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
@@ -715,6 +762,42 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
               className="bg-red-600 hover:bg-red-700"
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Section Assignment Dialog */}
+      <AlertDialog
+        open={!!sectionInvoice}
+        onOpenChange={(open) => !open && setSectionInvoice(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Assign Section</AlertDialogTitle>
+            <AlertDialogDescription>
+               Categorize this invoice for easier tracking when clothes are done.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4 space-y-4">
+            <Select value={sectionSelected} onValueChange={setSectionSelected}>
+               <SelectTrigger>
+                 <SelectValue placeholder="Select a section" />
+               </SelectTrigger>
+               <SelectContent>
+                  <SelectItem value="Section A">Section A</SelectItem>
+                  <SelectItem value="Section B">Section B</SelectItem>
+                  <SelectItem value="Section C">Section C</SelectItem>
+                  <SelectItem value=" ">None (Clear Section)</SelectItem>
+               </SelectContent>
+            </Select>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setSectionInvoice(null)}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleSaveSection}>
+              Save
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
