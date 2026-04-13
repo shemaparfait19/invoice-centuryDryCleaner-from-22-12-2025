@@ -75,17 +75,17 @@ export default function HomePage() {
     initializeDatabase();
   }, [initializeDatabase]);
 
-  // Refresh data every 5 minutes to check for new pickups
+  // Silently refresh data every 5 minutes (only data, never resets databaseReady)
   useEffect(() => {
     if (databaseReady && isInitialized) {
       const interval = setInterval(() => {
-        // Silently refresh data for notifications
-        initializeDatabase();
+        // Use loadData() not initializeDatabase() — avoids resetting databaseReady on slow responses
+        useSupabaseStore.getState().loadData();
       }, 5 * 60 * 1000); // 5 minutes
 
       return () => clearInterval(interval);
     }
-  }, [databaseReady, isInitialized, initializeDatabase]);
+  }, [databaseReady, isInitialized]);
 
   useEffect(() => {
     return () => {
@@ -119,8 +119,9 @@ export default function HomePage() {
     setCurrentView("create-invoice");
   };
 
-  // Show database setup if not ready
-  if (!databaseReady && !loading) {
+  // Show database setup only after a real failed initialization attempt
+  // (not on first render before useEffect, and not during background refreshes)
+  if (!databaseReady && !loading && isInitialized) {
     return (
       <div className="min-h-screen bg-background">
         <nav className="border-b">

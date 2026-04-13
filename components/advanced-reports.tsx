@@ -25,6 +25,7 @@ import {
   PieChart,
   Activity,
   Target,
+  RefreshCw,
 } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency } from "@/lib/utils";
@@ -71,7 +72,8 @@ export function AdvancedReports() {
   const [reportInvoices, setReportInvoices] = useState<Invoice[]>([]);
   const [reportLoading, setReportLoading] = useState(false);
 
-  useEffect(() => {
+  // Compute ISO date range from current filter state
+  const computeFromTo = () => {
     const parseYmdUtc = (ymd: string, endOfDay: boolean) => {
       const [y, m, d] = ymd.split("-").map((n) => Number(n));
       if (!y || !m || !d) return new Date(0);
@@ -79,83 +81,63 @@ export function AdvancedReports() {
         Date.UTC(y, m - 1, d, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0)
       );
     };
-
     const parseYmUtcStart = (ym: string) => {
       const [y, m] = ym.split("-").map((n) => Number(n));
       if (!y || !m) return new Date(0);
       return new Date(Date.UTC(y, m - 1, 1, 0, 0, 0, 0));
     };
 
-    const computeFromTo = () => {
-      const now = new Date();
-
-      if (selectedPeriod === "daily") {
-        const from = parseYmdUtc(selectedDate, false);
-        const to = parseYmdUtc(selectedDate, true);
-        return { fromIso: from.toISOString(), toIso: to.toISOString() };
-      }
-
-      if (selectedPeriod === "weekly") {
-        const from = parseYmdUtc(selectedWeekStart, false);
-        const to = new Date(from);
-        to.setUTCDate(to.getUTCDate() + 6);
-        to.setUTCHours(23, 59, 59, 999);
-        return { fromIso: from.toISOString(), toIso: to.toISOString() };
-      }
-
-      if (selectedPeriod === "monthly") {
-        const first = parseYmUtcStart(selectedMonth);
-        const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0, 23, 59, 59, 999));
-        return { fromIso: first.toISOString(), toIso: last.toISOString() };
-      }
-
-      if (selectedPeriod === "yearly") {
-        const y = Number(selectedYear);
-        const first = new Date(Date.UTC(y, 0, 1, 0, 0, 0, 0));
-        const last = new Date(Date.UTC(y, 11, 31, 23, 59, 59, 999));
-        return { fromIso: first.toISOString(), toIso: last.toISOString() };
-      }
-
-      if (selectedPeriod === "custom") {
-        const from = parseYmdUtc(customStartDate, false);
-        const to = parseYmdUtc(customEndDate, true);
-        return { fromIso: from.toISOString(), toIso: to.toISOString() };
-      }
-
-      const from = new Date(0);
-      const to = now;
+    const now = new Date();
+    if (selectedPeriod === "daily") {
+      return { fromIso: parseYmdUtc(selectedDate, false).toISOString(), toIso: parseYmdUtc(selectedDate, true).toISOString() };
+    }
+    if (selectedPeriod === "weekly") {
+      const from = parseYmdUtc(selectedWeekStart, false);
+      const to = new Date(from);
+      to.setUTCDate(to.getUTCDate() + 6);
+      to.setUTCHours(23, 59, 59, 999);
       return { fromIso: from.toISOString(), toIso: to.toISOString() };
-    };
+    }
+    if (selectedPeriod === "monthly") {
+      const first = parseYmUtcStart(selectedMonth);
+      const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+      return { fromIso: first.toISOString(), toIso: last.toISOString() };
+    }
+    if (selectedPeriod === "yearly") {
+      const y = Number(selectedYear);
+      return {
+        fromIso: new Date(Date.UTC(y, 0, 1, 0, 0, 0, 0)).toISOString(),
+        toIso: new Date(Date.UTC(y, 11, 31, 23, 59, 59, 999)).toISOString(),
+      };
+    }
+    if (selectedPeriod === "custom") {
+      return { fromIso: parseYmdUtc(customStartDate, false).toISOString(), toIso: parseYmdUtc(customEndDate, true).toISOString() };
+    }
+    return { fromIso: new Date(0).toISOString(), toIso: now.toISOString() };
+  };
 
-    const run = async () => {
-      try {
-        setReportLoading(true);
-        const { fromIso, toIso } = computeFromTo();
-        const data = await fetchInvoicesForDateRange(fromIso, toIso);
-        setReportInvoices(data as any[]);
-      } catch (error: any) {
-        setReportInvoices([]);
-        toast({
-          title: "Failed to load report data",
-          description: error?.message || "Please try again.",
-          variant: "destructive",
-        });
-      } finally {
-        setReportLoading(false);
-      }
-    };
+  // Manually-triggered fetch — only runs when the user clicks "Generate Report"
+  const fetchReport = async () => {
+    try {
+      setReportLoading(true);
+      const { fromIso, toIso } = computeFromTo();
+      const data = await fetchInvoicesForDateRange(fromIso, toIso);
+      setReportInvoices(data as any[]);
+    } catch (error: any) {
+      setReportInvoices([]);
+      toast({
+        title: "Failed to load report data",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setReportLoading(false);
+    }
+  };
 
-    run();
-  }, [
-    selectedPeriod,
-    selectedDate,
-    selectedWeekStart,
-    selectedMonth,
-    selectedYear,
-    customStartDate,
-    customEndDate,
-    fetchInvoicesForDateRange,
-  ]);
+  // Auto-load once on initial mount only
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchReport(); }, []);
 
   // Filter invoices based on selected period
   const filteredInvoices = useMemo(() => {
@@ -460,10 +442,18 @@ export function AdvancedReports() {
           )}
 
           <Button
+            onClick={fetchReport}
+            disabled={reportLoading}
+            className="w-full sm:w-auto"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${reportLoading ? "animate-spin" : ""}`} />
+            {reportLoading ? "Loading..." : "Generate Report"}
+          </Button>
+          <Button
             onClick={exportReport}
             variant="outline"
             className="w-full sm:w-auto"
-            disabled={reportLoading}
+            disabled={reportLoading || reportInvoices.length === 0}
           >
             <Download className="h-4 w-4 mr-2" />
             Export Excel
