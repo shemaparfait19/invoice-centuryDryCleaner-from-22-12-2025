@@ -791,7 +791,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
       if (error) throw new Error(error.message);
       if (!data || data.length === 0) return [];
 
-      return data
+      const invoices = data
         .map((invoice: any) => {
           if (!invoice.client) return null;
           return {
@@ -833,6 +833,43 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           };
         })
         .filter(Boolean) as Invoice[];
+
+      // Enrich with actor names from audit_logs — works immediately with no migration
+      const invoiceIds = invoices.map((inv) => inv.id);
+      const { data: logs } = await supabase
+        .from("audit_logs")
+        .select("entity_id, actor_name, action, changes")
+        .in("entity_id", invoiceIds)
+        .in("action", ["status_update", "payment_update"])
+        .order("created_at", { ascending: false });
+
+      const completedActorMap = new Map<string, string>();
+      const paidActorMap = new Map<string, string>();
+
+      for (const log of logs || []) {
+        if (!log.entity_id || !log.actor_name) continue;
+        const changes = log.changes as any;
+        if (
+          log.action === "status_update" &&
+          changes?.status === "completed" &&
+          !completedActorMap.has(log.entity_id)
+        ) {
+          completedActorMap.set(log.entity_id, log.actor_name);
+        }
+        if (
+          log.action === "payment_update" &&
+          changes?.paid === true &&
+          !paidActorMap.has(log.entity_id)
+        ) {
+          paidActorMap.set(log.entity_id, log.actor_name);
+        }
+      }
+
+      return invoices.map((inv) => ({
+        ...inv,
+        completedByName: completedActorMap.get(inv.id) || inv.completedByName,
+        paidByName: paidActorMap.get(inv.id) || inv.paidByName,
+      }));
     } catch (error: any) {
       console.error("Error fetching recent completed:", error);
       return [];
@@ -1428,6 +1465,16 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         ),
         loading: false,
       }));
+      try {
+        await supabase.from("audit_logs").insert({
+          action: "payment_update",
+          entity_type: "invoice",
+          entity_id: id,
+          actor_phone: currentUserPhone,
+          actor_name: currentUserName,
+          changes: { paid },
+        });
+      } catch {}
       toast({ title: paid ? "Marked as PAID" : "Marked as UNPAID" });
     } catch (error: any) {
       console.error("Error updating paid flag:", error);
@@ -1476,6 +1523,16 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         ),
         loading: false,
       }));
+      try {
+        await supabase.from("audit_logs").insert({
+          action: "payment_update",
+          entity_type: "invoice",
+          entity_id: id,
+          actor_phone: currentUserPhone,
+          actor_name: currentUserName,
+          changes: { paid: isPaying, paymentMethod: method },
+        });
+      } catch {}
       toast({ title: "Payment method updated" });
     } catch (error: any) {
       set({ loading: false, error: error.message });
