@@ -18,6 +18,7 @@ import {
   Database,
   Bell,
   CheckCircle2,
+  Banknote,
 } from "lucide-react";
 import { InvoiceForm } from "@/components/invoice-form";
 import { InvoiceList } from "@/components/invoice-list";
@@ -49,6 +50,7 @@ type View =
   | "create-invoice"
   | "invoices"
   | "recent-completed"
+  | "recent-paid"
   | "clients"
   | "reports"
   | "setup";
@@ -235,7 +237,9 @@ export default function HomePage() {
       case "invoices":
         return <InvoiceList onEdit={handleEditInvoice} />;
       case "recent-completed":
-        return <RecentCompleted onEdit={handleEditInvoice} />;
+        return <RecentCompleted type="completed" onEdit={handleEditInvoice} />;
+      case "recent-paid":
+        return <RecentCompleted type="paid" onEdit={handleEditInvoice} />;
       case "clients":
         return <ClientManagement />;
       case "reports":
@@ -423,6 +427,14 @@ export default function HomePage() {
                     <CheckCircle2 className="h-4 w-4 mr-2 text-green-600" />
                     Recent Completed
                   </Button>
+                  <Button
+                    onClick={() => setCurrentView("recent-paid")}
+                    variant="outline"
+                    className="w-full justify-start"
+                  >
+                    <Banknote className="h-4 w-4 mr-2 text-blue-600" />
+                    Recent Paid
+                  </Button>
                 </CardContent>
               </Card>
             </div>
@@ -470,6 +482,15 @@ export default function HomePage() {
               >
                 <CheckCircle2 className="h-4 w-4 mr-1" />
                 Completed
+              </Button>
+              <Button
+                variant={currentView === "recent-paid" ? "default" : "ghost"}
+                onClick={() => setCurrentView("recent-paid")}
+                size="sm"
+                className="flex-1 sm:flex-none"
+              >
+                <Banknote className="h-4 w-4 mr-1" />
+                Paid
               </Button>
               <Button
                 variant={currentView === "clients" ? "default" : "ghost"}

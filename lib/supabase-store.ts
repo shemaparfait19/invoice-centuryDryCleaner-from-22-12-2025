@@ -38,7 +38,7 @@ interface SupabaseStore {
   loadInvoices: () => Promise<void>;
   loadMoreInvoices: () => Promise<void>;
   searchInvoicesDb: (query: string) => Promise<Invoice[]>;
-  fetchRecentCompleted: () => Promise<Invoice[]>;
+  fetchRecentCompleted: (filter: "completed" | "paid", limit: number) => Promise<Invoice[]>;
   fetchInvoicesForDateRange: (fromIso: string, toIso: string) => Promise<Invoice[]>;
   addInvoice: (
     invoice: Omit<Invoice, "updatedAt"> & { createdAt?: string }
@@ -742,14 +742,21 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
     return invoices;
   },
 
-  fetchRecentCompleted: async () => {
+  fetchRecentCompleted: async (filter: "completed" | "paid", limit: number) => {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from("invoices")
-        .select(`*, client:clients(*), invoice_items(*)`)
-        .or("status.eq.completed,paid.eq.true")
+        .select(`*, client:clients(*), invoice_items(*)`);
+
+      if (filter === "completed") {
+        query = query.eq("status", "completed");
+      } else {
+        query = query.eq("paid", true);
+      }
+
+      const { data, error } = await query
         .order("updated_at", { ascending: false })
-        .limit(100);
+        .limit(limit);
 
       if (error) throw new Error(error.message);
       if (!data || data.length === 0) return [];

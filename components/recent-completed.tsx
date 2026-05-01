@@ -1,10 +1,17 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, Download, Share, Eye, RefreshCw } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { CheckCircle2, Banknote, Download, Share, Eye, RefreshCw } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency } from "@/lib/utils";
 import { generatePDF, shareViaWhatsApp } from "@/lib/pdf-utils";
@@ -12,6 +19,11 @@ import { InvoicePrint } from "@/components/invoice-print";
 import { InvoiceStatusManager } from "@/components/invoice-status-manager";
 import { toast } from "@/hooks/use-toast";
 import type { Invoice } from "@/lib/types";
+
+const LIMIT_OPTIONS = [50, 100, 200, 500] as const;
+type LimitOption = (typeof LIMIT_OPTIONS)[number];
+
+const GROUP_ORDER = ["Today", "Yesterday", "This Week", "Earlier"];
 
 function getDateGroup(dateStr: string): string {
   const date = new Date(dateStr);
@@ -28,39 +40,39 @@ function getDateGroup(dateStr: string): string {
   return "Earlier";
 }
 
-const GROUP_ORDER = ["Today", "Yesterday", "This Week", "Earlier"];
-
 interface RecentCompletedProps {
+  type: "completed" | "paid";
   onEdit: (invoiceId: string) => void;
 }
 
-export function RecentCompleted({ onEdit }: RecentCompletedProps) {
-  const { fetchRecentCompleted, invoices, updateInvoiceStatus } = useSupabaseStore();
+export function RecentCompleted({ type, onEdit }: RecentCompletedProps) {
+  const { fetchRecentCompleted, invoices } = useSupabaseStore();
   const [results, setResults] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
+  const [limit, setLimit] = useState<LimitOption>(50);
   const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (lim: LimitOption) => {
     setLoading(true);
-    const data = await fetchRecentCompleted();
+    const data = await fetchRecentCompleted(type, lim);
     setResults(data);
     setLoading(false);
-  }, [fetchRecentCompleted]);
+  }, [fetchRecentCompleted, type]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    load(limit);
+  }, [load, limit]);
 
-  // Keep results fresh when the store updates (real-time status changes)
+  // Sync with store real-time updates
   useEffect(() => {
     if (results.length === 0) return;
-    setResults((prev) => {
-      const updated = prev
+    setResults((prev) =>
+      prev
         .map((item) => invoices.find((inv) => inv.id === item.id) ?? item)
-        // Re-filter: remove if no longer completed/paid after update
-        .filter((inv) => inv.status === "completed" || inv.paid);
-      return updated;
-    });
+        .filter((inv) =>
+          type === "completed" ? inv.status === "completed" : inv.paid
+        )
+    );
   }, [invoices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDownloadPDF = async (invoice: Invoice) => {
@@ -80,7 +92,6 @@ export function RecentCompleted({ onEdit }: RecentCompletedProps) {
     }
   };
 
-  // Group invoices by date label
   const groups: Record<string, Invoice[]> = {};
   for (const inv of results) {
     const label = getDateGroup(inv.updatedAt ?? inv.createdAt);
@@ -89,7 +100,8 @@ export function RecentCompleted({ onEdit }: RecentCompletedProps) {
   }
 
   const getPaymentBadge = (invoice: Invoice) => {
-    if (!invoice.paid) return <Badge variant="outline" className="border-yellow-300 text-yellow-700">Unpaid</Badge>;
+    if (!invoice.paid)
+      return <Badge variant="outline" className="border-yellow-300 text-yellow-700">Unpaid</Badge>;
     const labels: Record<string, string> = {
       CASH: "Cash", MOMO: "Mobile Money", BANK: "Bank Transfer",
       CARD: "Card", UNPAID: "Unpaid",
@@ -101,37 +113,68 @@ export function RecentCompleted({ onEdit }: RecentCompletedProps) {
     );
   };
 
+  const isCompleted = type === "completed";
+  const Icon = isCompleted ? CheckCircle2 : Banknote;
+  const accentColor = isCompleted ? "text-green-600" : "text-blue-600";
+  const spinnerColor = isCompleted ? "border-green-600" : "border-blue-600";
+  const title = isCompleted ? "Completed Invoices" : "Paid Invoices";
+  const description = isCompleted
+    ? "Invoices with status set to Completed — ordered by most recently updated."
+    : "Invoices marked as Paid — ordered by most recently updated.";
+  const emptyText = isCompleted ? "No completed invoices yet." : "No paid invoices yet.";
+
   return (
     <div className="space-y-4 p-4">
-      <div className="flex items-center justify-between">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-2">
-          <CheckCircle2 className="h-6 w-6 text-green-600" />
-          <h1 className="text-xl sm:text-2xl font-bold">Recent Completed</h1>
+          <Icon className={`h-6 w-6 ${accentColor}`} />
+          <h1 className="text-xl sm:text-2xl font-bold">{title}</h1>
+          {!loading && (
+            <span className="text-sm text-muted-foreground">
+              ({results.length}{results.length === limit ? "+" : ""})
+            </span>
+          )}
         </div>
-        <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground whitespace-nowrap">Show:</span>
+          <Select
+            value={String(limit)}
+            onValueChange={(v) => setLimit(Number(v) as LimitOption)}
+          >
+            <SelectTrigger className="w-24 h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LIMIT_OPTIONS.map((n) => (
+                <SelectItem key={n} value={String(n)}>
+                  {n} rows
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={() => load(limit)} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
       </div>
-      <p className="text-sm text-muted-foreground">
-        Invoices marked as completed or paid — sorted by most recently updated.
-      </p>
+      <p className="text-sm text-muted-foreground">{description}</p>
 
       {loading ? (
         <div className="flex justify-center py-16">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600" />
+          <div className={`animate-spin rounded-full h-8 w-8 border-b-2 ${spinnerColor}`} />
         </div>
       ) : results.length === 0 ? (
         <Card>
           <CardContent className="py-16 text-center text-muted-foreground">
-            No completed or paid invoices yet.
+            {emptyText}
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-8">
           {GROUP_ORDER.filter((g) => groups[g]?.length > 0).map((group) => (
             <div key={group} className="space-y-3">
-              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide px-1">
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest px-1">
                 {group} — {groups[group].length} invoice{groups[group].length !== 1 ? "s" : ""}
               </h2>
 
@@ -141,10 +184,10 @@ export function RecentCompleted({ onEdit }: RecentCompletedProps) {
                   <CardContent className="p-0">
                     <table className="w-full">
                       <thead>
-                        <tr className="border-b bg-gray-50 text-left text-sm text-muted-foreground">
+                        <tr className="border-b bg-gray-50 text-left text-xs text-muted-foreground">
                           <th className="p-3">Invoice</th>
                           <th className="p-3">Client</th>
-                          <th className="p-3">Completed</th>
+                          <th className="p-3">{isCompleted ? "Completed at" : "Paid at"}</th>
                           <th className="p-3">Amount</th>
                           <th className="p-3">Status</th>
                           <th className="p-3">Payment</th>
@@ -164,17 +207,19 @@ export function RecentCompleted({ onEdit }: RecentCompletedProps) {
                                 <p className="text-xs text-muted-foreground">{invoice.client.phone}</p>
                               </td>
                               <td className="p-3 text-sm text-muted-foreground">
-                                {invoice.updatedAt
-                                  ? new Date(invoice.updatedAt).toLocaleString()
-                                  : new Date(invoice.createdAt).toLocaleString()}
+                                {new Date(invoice.updatedAt ?? invoice.createdAt).toLocaleString()}
                               </td>
                               <td className="p-3 font-semibold">{formatCurrency(invoice.total)}</td>
                               <td className="p-3">
-                                <Badge className={
-                                  invoice.status === "completed"
-                                    ? "bg-green-100 text-green-800"
-                                    : "bg-yellow-100 text-yellow-800"
-                                }>
+                                <Badge
+                                  className={
+                                    invoice.status === "completed"
+                                      ? "bg-green-100 text-green-800"
+                                      : invoice.status === "cancelled"
+                                      ? "bg-red-100 text-red-800"
+                                      : "bg-yellow-100 text-yellow-800"
+                                  }
+                                >
                                   {invoice.status}
                                 </Badge>
                               </td>
@@ -219,22 +264,21 @@ export function RecentCompleted({ onEdit }: RecentCompletedProps) {
                         </div>
                         <div className="text-right space-y-1">
                           <p className="font-bold">{formatCurrency(invoice.total)}</p>
-                          <Badge className={
-                            invoice.status === "completed"
-                              ? "bg-green-100 text-green-800"
-                              : "bg-yellow-100 text-yellow-800"
-                          }>
+                          <Badge
+                            className={
+                              invoice.status === "completed"
+                                ? "bg-green-100 text-green-800"
+                                : invoice.status === "cancelled"
+                                ? "bg-red-100 text-red-800"
+                                : "bg-yellow-100 text-yellow-800"
+                            }
+                          >
                             {invoice.status}
                           </Badge>
                         </div>
                       </div>
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>
-                          Updated:{" "}
-                          {invoice.updatedAt
-                            ? new Date(invoice.updatedAt).toLocaleString()
-                            : new Date(invoice.createdAt).toLocaleString()}
-                        </span>
+                        <span>{new Date(invoice.updatedAt ?? invoice.createdAt).toLocaleString()}</span>
                         {getPaymentBadge(invoice)}
                       </div>
                       <InvoiceStatusManager invoice={invoice} compact={true} showDetails={false} />
