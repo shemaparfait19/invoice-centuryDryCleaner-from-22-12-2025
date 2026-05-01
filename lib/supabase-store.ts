@@ -38,6 +38,7 @@ interface SupabaseStore {
   loadInvoices: () => Promise<void>;
   loadMoreInvoices: () => Promise<void>;
   searchInvoicesDb: (query: string) => Promise<Invoice[]>;
+  fetchRecentCompleted: () => Promise<Invoice[]>;
   fetchInvoicesForDateRange: (fromIso: string, toIso: string) => Promise<Invoice[]>;
   addInvoice: (
     invoice: Omit<Invoice, "updatedAt"> & { createdAt?: string }
@@ -739,6 +740,62 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
     );
 
     return invoices;
+  },
+
+  fetchRecentCompleted: async () => {
+    try {
+      const { data, error } = await supabase
+        .from("invoices")
+        .select(`*, client:clients(*), invoice_items(*)`)
+        .or("status.eq.completed,paid.eq.true")
+        .order("updated_at", { ascending: false })
+        .limit(100);
+
+      if (error) throw new Error(error.message);
+      if (!data || data.length === 0) return [];
+
+      return data
+        .map((invoice: any) => {
+          if (!invoice.client) return null;
+          return {
+            id: invoice.id,
+            client: {
+              id: invoice.client.id,
+              name: invoice.client.name,
+              phone: invoice.client.phone,
+              address: invoice.client.address || "",
+              visitCount: invoice.client.visit_count || 0,
+              rewardClaimed: invoice.client.reward_claimed || false,
+              lastVisit: invoice.client.last_visit || new Date().toISOString(),
+              createdAt: invoice.client.created_at,
+              updatedAt: invoice.client.updated_at,
+            },
+            items: (invoice.invoice_items || []).map((item: any) => ({
+              id: item.id,
+              description: item.description,
+              quantity: item.quantity,
+              unitPrice: parseFloat(item.unit_price),
+              totalPrice: parseFloat(item.total_price),
+            })),
+            total: parseFloat(invoice.total),
+            paymentMethod: invoice.payment_method,
+            paid: invoice.paid ?? false,
+            status: invoice.status,
+            pickupDate: invoice.pickup_date || undefined,
+            pickupTime: invoice.pickup_time || undefined,
+            notes: invoice.notes || undefined,
+            section: invoice.section || undefined,
+            createdByName: invoice.created_by_name || undefined,
+            createdByPhone: invoice.created_by_phone || undefined,
+            createdAt: invoice.created_at,
+            updatedAt: invoice.updated_at,
+          };
+        })
+        .filter(Boolean) as Invoice[];
+    } catch (error: any) {
+      console.error("Error fetching recent completed:", error);
+      return [];
+    }
   },
 
   fetchInvoicesForDateRange: async (fromIso: string, toIso: string) => {

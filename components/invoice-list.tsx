@@ -91,6 +91,15 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
 
   const activeInvoices = isSearchingDb ? searchResults : invoices;
 
+  // When the store updates an invoice (e.g. status/paid change), sync it into
+  // searchResults so the UI reflects the change without requiring a re-search.
+  useEffect(() => {
+    if (!isSearchingDb || searchResults.length === 0) return;
+    setSearchResults((prev) =>
+      prev.map((item) => invoices.find((inv) => inv.id === item.id) ?? item)
+    );
+  }, [invoices]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const filteredInvoices = activeInvoices
     .filter((invoice) => {
       const matchesSearch =
