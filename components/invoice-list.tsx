@@ -44,6 +44,7 @@ import {
   Eye,
   StickyNote,
   Tags,
+  User,
 } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency } from "@/lib/utils";
@@ -467,12 +468,26 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                   </button>
                 </div>
 
-                <div className="pt-2 border-t">
+                <div className="pt-2 border-t space-y-2">
                   <InvoiceStatusManager
                     invoice={invoice}
                     compact={true}
                     showDetails={false}
                   />
+                  <div className="flex flex-wrap gap-2">
+                    {invoice.completedByName && (
+                      <span className="flex items-center gap-1 text-xs text-gray-500 bg-gray-50 rounded px-2 py-1">
+                        <User className="h-3 w-3" />
+                        Completed by: <span className="font-medium text-gray-700">{invoice.completedByName}</span>
+                      </span>
+                    )}
+                    {invoice.paidByName && (
+                      <span className="flex items-center gap-1 text-xs text-gray-500 bg-gray-50 rounded px-2 py-1">
+                        <User className="h-3 w-3" />
+                        Paid by: <span className="font-medium text-gray-700">{invoice.paidByName}</span>
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2 pt-2 border-t">
@@ -693,11 +708,25 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                       className="border-b bg-gray-50/50"
                     >
                       <td colSpan={9} className="p-2">
-                        <InvoiceStatusManager
-                          invoice={invoice}
-                          compact={true}
-                          showDetails={false}
-                        />
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                          <InvoiceStatusManager
+                            invoice={invoice}
+                            compact={true}
+                            showDetails={false}
+                          />
+                          {invoice.completedByName && (
+                            <span className="flex items-center gap-1 text-xs text-gray-500">
+                              <User className="h-3 w-3" />
+                              Completed by: <span className="font-medium text-gray-700">{invoice.completedByName}</span>
+                            </span>
+                          )}
+                          {invoice.paidByName && (
+                            <span className="flex items-center gap-1 text-xs text-gray-500">
+                              <User className="h-3 w-3" />
+                              Paid by: <span className="font-medium text-gray-700">{invoice.paidByName}</span>
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                     {/* Invoice Items Row */}

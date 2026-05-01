@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CheckCircle2, Banknote, Download, Share, Eye, RefreshCw } from "lucide-react";
+import { CheckCircle2, Banknote, Download, Share, Eye, RefreshCw, User } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency } from "@/lib/utils";
 import { generatePDF, shareViaWhatsApp } from "@/lib/pdf-utils";
@@ -113,6 +113,11 @@ export function RecentCompleted({ type, onEdit }: RecentCompletedProps) {
     );
   };
 
+  const getActor = (invoice: Invoice) => {
+    if (type === "completed") return invoice.completedByName ?? invoice.completedByPhone ?? null;
+    return invoice.paidByName ?? invoice.paidByPhone ?? null;
+  };
+
   const isCompleted = type === "completed";
   const Icon = isCompleted ? CheckCircle2 : Banknote;
   const accentColor = isCompleted ? "text-green-600" : "text-blue-600";
@@ -188,6 +193,7 @@ export function RecentCompleted({ type, onEdit }: RecentCompletedProps) {
                           <th className="p-3">Invoice</th>
                           <th className="p-3">Client</th>
                           <th className="p-3">{isCompleted ? "Completed at" : "Paid at"}</th>
+                          <th className="p-3">{isCompleted ? "Completed by" : "Paid by"}</th>
                           <th className="p-3">Amount</th>
                           <th className="p-3">Status</th>
                           <th className="p-3">Payment</th>
@@ -208,6 +214,16 @@ export function RecentCompleted({ type, onEdit }: RecentCompletedProps) {
                               </td>
                               <td className="p-3 text-sm text-muted-foreground">
                                 {new Date(invoice.updatedAt ?? invoice.createdAt).toLocaleString()}
+                              </td>
+                              <td className="p-3">
+                                {getActor(invoice) ? (
+                                  <span className="flex items-center gap-1 text-sm font-medium text-gray-700">
+                                    <User className="h-3 w-3 text-muted-foreground" />
+                                    {getActor(invoice)}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">—</span>
+                                )}
                               </td>
                               <td className="p-3 font-semibold">{formatCurrency(invoice.total)}</td>
                               <td className="p-3">
@@ -239,7 +255,7 @@ export function RecentCompleted({ type, onEdit }: RecentCompletedProps) {
                               </td>
                             </tr>
                             <tr className="border-b bg-gray-50/50">
-                              <td colSpan={7} className="p-2">
+                              <td colSpan={8} className="p-2">
                                 <InvoiceStatusManager invoice={invoice} compact={true} showDetails={false} />
                               </td>
                             </tr>
@@ -281,6 +297,15 @@ export function RecentCompleted({ type, onEdit }: RecentCompletedProps) {
                         <span>{new Date(invoice.updatedAt ?? invoice.createdAt).toLocaleString()}</span>
                         {getPaymentBadge(invoice)}
                       </div>
+                      {getActor(invoice) && (
+                        <div className="flex items-center gap-1 text-xs text-gray-600 bg-gray-50 rounded px-2 py-1">
+                          <User className="h-3 w-3" />
+                          <span className="font-medium">
+                            {isCompleted ? "Completed by" : "Paid by"}:
+                          </span>
+                          <span>{getActor(invoice)}</span>
+                        </div>
+                      )}
                       <InvoiceStatusManager invoice={invoice} compact={true} showDetails={false} />
                       <div className="flex gap-2 pt-1 border-t">
                         <Button variant="outline" size="sm" className="flex-1" onClick={() => setViewInvoice(invoice)}>

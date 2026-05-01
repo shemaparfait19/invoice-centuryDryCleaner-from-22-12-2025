@@ -512,6 +512,10 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             section: invoice.section || undefined,
             createdByName: invoice.created_by_name || undefined,
             createdByPhone: invoice.created_by_phone || undefined,
+            completedByName: invoice.completed_by_name || undefined,
+            completedByPhone: invoice.completed_by_phone || undefined,
+            paidByName: invoice.paid_by_name || undefined,
+            paidByPhone: invoice.paid_by_phone || undefined,
             createdAt: invoice.created_at,
             updatedAt: invoice.updated_at,
           };
@@ -609,6 +613,10 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             section: invoice.section || undefined,
             createdByName: invoice.created_by_name || undefined,
             createdByPhone: invoice.created_by_phone || undefined,
+            completedByName: invoice.completed_by_name || undefined,
+            completedByPhone: invoice.completed_by_phone || undefined,
+            paidByName: invoice.paid_by_name || undefined,
+            paidByPhone: invoice.paid_by_phone || undefined,
             createdAt: invoice.created_at,
             updatedAt: invoice.updated_at,
           };
@@ -728,6 +736,10 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           section: invoice.section || undefined,
           createdByName: invoice.created_by_name || undefined,
           createdByPhone: invoice.created_by_phone || undefined,
+          completedByName: invoice.completed_by_name || undefined,
+          completedByPhone: invoice.completed_by_phone || undefined,
+          paidByName: invoice.paid_by_name || undefined,
+          paidByPhone: invoice.paid_by_phone || undefined,
           createdAt: invoice.created_at,
           updatedAt: invoice.updated_at,
         };
@@ -794,6 +806,10 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             section: invoice.section || undefined,
             createdByName: invoice.created_by_name || undefined,
             createdByPhone: invoice.created_by_phone || undefined,
+            completedByName: invoice.completed_by_name || undefined,
+            completedByPhone: invoice.completed_by_phone || undefined,
+            paidByName: invoice.paid_by_name || undefined,
+            paidByPhone: invoice.paid_by_phone || undefined,
             createdAt: invoice.created_at,
             updatedAt: invoice.updated_at,
           };
@@ -870,6 +886,10 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           section: invoice.section || undefined,
           createdByName: invoice.created_by_name || undefined,
           createdByPhone: invoice.created_by_phone || undefined,
+          completedByName: invoice.completed_by_name || undefined,
+          completedByPhone: invoice.completed_by_phone || undefined,
+          paidByName: invoice.paid_by_name || undefined,
+          paidByPhone: invoice.paid_by_phone || undefined,
           createdAt: invoice.created_at,
           updatedAt: invoice.updated_at,
         };
@@ -1292,11 +1312,16 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
     try {
       set({ loading: true, error: null });
 
+      const { currentUserName, currentUserPhone } = get();
+      const isCompleting = status === "completed";
+
       const { error } = await supabase
         .from("invoices")
         .update({
           status,
           updated_at: new Date().toISOString(),
+          completed_by_name: isCompleting ? (currentUserName || null) : null,
+          completed_by_phone: isCompleting ? (currentUserPhone || null) : null,
         })
         .eq("id", id);
 
@@ -1308,7 +1333,13 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
       set((state) => ({
         invoices: state.invoices.map((invoice) =>
           invoice.id === id
-            ? { ...invoice, status, updatedAt: new Date().toISOString() }
+            ? {
+                ...invoice,
+                status,
+                updatedAt: new Date().toISOString(),
+                completedByName: isCompleting ? (currentUserName || undefined) : undefined,
+                completedByPhone: isCompleting ? (currentUserPhone || undefined) : undefined,
+              }
             : invoice
         ),
         loading: false,
@@ -1346,9 +1377,15 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
   updateInvoicePaid: async (id, paid) => {
     try {
       set({ loading: true, error: null });
+      const { currentUserName, currentUserPhone } = get();
       const { error } = await supabase
         .from("invoices")
-        .update({ paid, updated_at: new Date().toISOString() })
+        .update({
+          paid,
+          updated_at: new Date().toISOString(),
+          paid_by_name: paid ? (currentUserName || null) : null,
+          paid_by_phone: paid ? (currentUserPhone || null) : null,
+        })
         .eq("id", id);
       if (error) {
         throw new Error(`Failed to update paid flag: ${error.message}`);
@@ -1356,7 +1393,13 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
       set((state) => ({
         invoices: state.invoices.map((inv) =>
           inv.id === id
-            ? { ...inv, paid, updatedAt: new Date().toISOString() }
+            ? {
+                ...inv,
+                paid,
+                updatedAt: new Date().toISOString(),
+                paidByName: paid ? (currentUserName || undefined) : undefined,
+                paidByPhone: paid ? (currentUserPhone || undefined) : undefined,
+              }
             : inv
         ),
         loading: false,
@@ -1376,12 +1419,16 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
   updateInvoicePaymentMethod: async (id, method) => {
     try {
       set({ loading: true, error: null });
+      const { currentUserName, currentUserPhone } = get();
+      const isPaying = method !== "UNPAID";
       const { error } = await supabase
         .from("invoices")
         .update({
           payment_method: method,
-          paid: method !== "UNPAID",
+          paid: isPaying,
           updated_at: new Date().toISOString(),
+          paid_by_name: isPaying ? (currentUserName || null) : null,
+          paid_by_phone: isPaying ? (currentUserPhone || null) : null,
         })
         .eq("id", id);
       if (error)
@@ -1392,8 +1439,10 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             ? {
                 ...inv,
                 paymentMethod: method,
-                paid: method !== "UNPAID",
+                paid: isPaying,
                 updatedAt: new Date().toISOString(),
+                paidByName: isPaying ? (currentUserName || undefined) : undefined,
+                paidByPhone: isPaying ? (currentUserPhone || undefined) : undefined,
               }
             : inv
         ),

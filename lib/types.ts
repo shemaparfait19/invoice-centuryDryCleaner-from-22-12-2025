@@ -32,6 +32,10 @@ export interface Invoice {
   section?: string;
   createdByName?: string;
   createdByPhone?: string;
+  completedByName?: string;
+  completedByPhone?: string;
+  paidByName?: string;
+  paidByPhone?: string;
   createdAt: string;
   updatedAt: string;
 }
