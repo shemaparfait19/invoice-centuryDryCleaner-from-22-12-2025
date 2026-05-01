@@ -67,10 +67,22 @@ interface SupabaseStore {
   updateInvoiceSection: (id: string, section: string | null) => Promise<void>;
 }
 
-// Returns true when Supabase rejects because a column doesn't exist yet
-function isMissingColumnError(err: any): boolean {
-  const msg: string = err?.message ?? "";
-  return msg.includes("schema cache") || msg.includes("Could not find");
+// Cached probe: have the actor-tracking columns been migrated yet?
+// null = not checked yet, true/false = result cached for this session.
+let actorColumnsReady: boolean | null = null;
+
+async function checkActorColumns(): Promise<boolean> {
+  if (actorColumnsReady !== null) return actorColumnsReady;
+  try {
+    const { error } = await supabase
+      .from("invoices")
+      .select("completed_by_name, completed_by_phone, paid_by_name, paid_by_phone")
+      .limit(1);
+    actorColumnsReady = !error;
+  } catch {
+    actorColumnsReady = false;
+  }
+  return actorColumnsReady;
 }
 
 export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
@@ -1320,23 +1332,18 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
 
       const { currentUserName, currentUserPhone } = get();
       const isCompleting = status === "completed";
+      const hasActorCols = await checkActorColumns();
 
       const statusPayload: Record<string, any> = {
         status,
         updated_at: new Date().toISOString(),
-        completed_by_name: isCompleting ? (currentUserName || null) : null,
-        completed_by_phone: isCompleting ? (currentUserPhone || null) : null,
+        ...(hasActorCols && {
+          completed_by_name: isCompleting ? (currentUserName || null) : null,
+          completed_by_phone: isCompleting ? (currentUserPhone || null) : null,
+        }),
       };
 
-      let { error } = await supabase.from("invoices").update(statusPayload).eq("id", id);
-
-      // Columns not yet migrated — retry without actor fields
-      if (error && isMissingColumnError(error)) {
-        ({ error } = await supabase
-          .from("invoices")
-          .update({ status, updated_at: statusPayload.updated_at })
-          .eq("id", id));
-      }
+      const { error } = await supabase.from("invoices").update(statusPayload).eq("id", id);
 
       if (error) {
         throw new Error(`Failed to update invoice status: ${error.message}`);
@@ -1391,21 +1398,18 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
     try {
       set({ loading: true, error: null });
       const { currentUserName, currentUserPhone } = get();
+      const hasActorCols = await checkActorColumns();
+
       const paidPayload: Record<string, any> = {
         paid,
         updated_at: new Date().toISOString(),
-        paid_by_name: paid ? (currentUserName || null) : null,
-        paid_by_phone: paid ? (currentUserPhone || null) : null,
+        ...(hasActorCols && {
+          paid_by_name: paid ? (currentUserName || null) : null,
+          paid_by_phone: paid ? (currentUserPhone || null) : null,
+        }),
       };
 
-      let { error } = await supabase.from("invoices").update(paidPayload).eq("id", id);
-
-      if (error && isMissingColumnError(error)) {
-        ({ error } = await supabase
-          .from("invoices")
-          .update({ paid, updated_at: paidPayload.updated_at })
-          .eq("id", id));
-      }
+      const { error } = await supabase.from("invoices").update(paidPayload).eq("id", id);
 
       if (error) {
         throw new Error(`Failed to update paid flag: ${error.message}`);
@@ -1441,22 +1445,19 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
       set({ loading: true, error: null });
       const { currentUserName, currentUserPhone } = get();
       const isPaying = method !== "UNPAID";
+      const hasActorCols = await checkActorColumns();
+
       const methodPayload: Record<string, any> = {
         payment_method: method,
         paid: isPaying,
         updated_at: new Date().toISOString(),
-        paid_by_name: isPaying ? (currentUserName || null) : null,
-        paid_by_phone: isPaying ? (currentUserPhone || null) : null,
+        ...(hasActorCols && {
+          paid_by_name: isPaying ? (currentUserName || null) : null,
+          paid_by_phone: isPaying ? (currentUserPhone || null) : null,
+        }),
       };
 
-      let { error } = await supabase.from("invoices").update(methodPayload).eq("id", id);
-
-      if (error && isMissingColumnError(error)) {
-        ({ error } = await supabase
-          .from("invoices")
-          .update({ payment_method: method, paid: isPaying, updated_at: methodPayload.updated_at })
-          .eq("id", id));
-      }
+      const { error } = await supabase.from("invoices").update(methodPayload).eq("id", id);
 
       if (error)
         throw new Error(`Failed to update payment method: ${error.message}`);
