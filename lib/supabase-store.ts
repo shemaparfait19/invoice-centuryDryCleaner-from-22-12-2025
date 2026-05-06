@@ -868,7 +868,12 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
       return invoices.map((inv) => ({
         ...inv,
         completedByName: completedActorMap.get(inv.id) || inv.completedByName,
-        paidByName: paidActorMap.get(inv.id) || inv.paidByName,
+        // For paid invoices: prefer payment_update log → fall back to whoever
+        // completed the invoice (same actor in most cases for historical data).
+        paidByName:
+          paidActorMap.get(inv.id) ||
+          completedActorMap.get(inv.id) ||
+          inv.paidByName,
       }));
     } catch (error: any) {
       console.error("Error fetching recent completed:", error);

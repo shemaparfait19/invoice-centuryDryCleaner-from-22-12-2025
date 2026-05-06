@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Search } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { SERVICES } from "@/lib/services";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency, generateInvoiceId } from "@/lib/utils";
@@ -63,8 +63,8 @@ interface InvoiceFormProps {
 }
 
 export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [showClientSearch, setShowClientSearch] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const clientInputRef = useRef<HTMLInputElement | null>(null);
   const { invoices, clients, addInvoice, updateInvoice, addClient, loading } =
     useSupabaseStore();
 
@@ -113,18 +113,23 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
     }
   }, [editingInvoice, form]);
 
-  const filteredClients = clients.filter(
-    (client) =>
-      client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      client.phone.includes(searchTerm)
-  );
+  const clientNameValue = form.watch("clientName") || "";
+
+  const clientSuggestions = clientNameValue.trim().length > 0
+    ? clients
+        .filter(
+          (c) =>
+            c.name.toLowerCase().includes(clientNameValue.toLowerCase()) ||
+            c.phone.includes(clientNameValue)
+        )
+        .slice(0, 8)
+    : [];
 
   const selectClient = (client: Client) => {
-    form.setValue("clientName", client.name);
-    form.setValue("clientPhone", client.phone);
+    form.setValue("clientName", client.name, { shouldValidate: true });
+    form.setValue("clientPhone", client.phone, { shouldValidate: true });
     form.setValue("clientAddress", client.address || "");
-    setShowClientSearch(false);
-    setSearchTerm("");
+    setShowSuggestions(false);
   };
 
   const calculateTotal = () => {
@@ -307,54 +312,52 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
           <CardContent className="space-y-4">
             <div className="relative">
               <Label htmlFor="clientName">Client Name</Label>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Input
-                  id="clientName"
-                  {...form.register("clientName")}
-                  placeholder="Enter client name"
-                  className="flex-1"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowClientSearch(!showClientSearch)}
-                  className="w-full sm:w-auto"
-                >
-                  <Search className="h-4 w-4 mr-2" />
-                  Search
-                </Button>
-              </div>
+              <Input
+                id="clientName"
+                {...form.register("clientName")}
+                ref={(el) => {
+                  form.register("clientName").ref(el);
+                  clientInputRef.current = el;
+                }}
+                placeholder="Type a name or phone to find existing client…"
+                autoComplete="off"
+                onChange={(e) => {
+                  form.setValue("clientName", e.target.value, { shouldValidate: true });
+                  setShowSuggestions(e.target.value.trim().length > 0);
+                }}
+                onFocus={() => {
+                  if (clientNameValue.trim().length > 0) setShowSuggestions(true);
+                }}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+              />
               {form.formState.errors.clientName && (
                 <p className="text-sm text-red-500">
                   {form.formState.errors.clientName.message}
                 </p>
               )}
 
-              {showClientSearch && (
-                <Card className="absolute top-full left-0 right-0 z-10 mt-1">
-                  <CardContent className="p-4">
-                    <Input
-                      placeholder="Search clients..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="mb-2"
-                    />
-                    <div className="max-h-40 overflow-y-auto space-y-2">
-                      {filteredClients.map((client) => (
-                        <div
-                          key={client.id}
-                          className="p-2 hover:bg-muted cursor-pointer rounded"
-                          onClick={() => selectClient(client)}
-                        >
-                          <p className="font-medium">{client.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {client.phone}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
+              {showSuggestions && clientSuggestions.length > 0 && (
+                <div className="absolute z-20 left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg overflow-hidden">
+                  <p className="px-3 pt-2 pb-1 text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                    Existing clients
+                  </p>
+                  <ul className="max-h-48 overflow-y-auto divide-y">
+                    {clientSuggestions.map((client) => (
+                      <li
+                        key={client.id}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => selectClient(client)}
+                        className="flex items-center justify-between px-3 py-2.5 hover:bg-blue-50 cursor-pointer transition-colors"
+                      >
+                        <span className="font-medium text-sm">{client.name}</span>
+                        <span className="text-xs text-muted-foreground ml-4">{client.phone}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="px-3 py-2 text-xs text-muted-foreground border-t bg-gray-50">
+                    Not listed? Keep typing to create a new client.
+                  </p>
+                </div>
               )}
             </div>
 

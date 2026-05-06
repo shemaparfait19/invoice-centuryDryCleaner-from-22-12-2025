@@ -237,9 +237,9 @@ export default function HomePage() {
       case "invoices":
         return <InvoiceList onEdit={handleEditInvoice} />;
       case "recent-completed":
-        return <RecentCompleted type="completed" onEdit={handleEditInvoice} />;
+        return <RecentCompleted type="completed" />;
       case "recent-paid":
-        return <RecentCompleted type="paid" onEdit={handleEditInvoice} />;
+        return <RecentCompleted type="paid" />;
       case "clients":
         return <ClientManagement />;
       case "reports":

@@ -24,6 +24,7 @@ const LIMIT_OPTIONS = [50, 100, 200, 500] as const;
 type LimitOption = (typeof LIMIT_OPTIONS)[number];
 
 const GROUP_ORDER = ["Today", "Yesterday", "This Week", "Earlier"];
+const SHOW_TOTAL_FOR = new Set(["Today", "Yesterday"]);
 
 function getDateGroup(dateStr: string): string {
   const date = new Date(dateStr);
@@ -42,21 +43,21 @@ function getDateGroup(dateStr: string): string {
 
 interface RecentCompletedProps {
   type: "completed" | "paid";
-  onEdit: (invoiceId: string) => void;
 }
 
-export function RecentCompleted({ type, onEdit }: RecentCompletedProps) {
+export function RecentCompleted({ type }: RecentCompletedProps) {
   const { fetchRecentCompleted, invoices } = useSupabaseStore();
   const [results, setResults] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [limit, setLimit] = useState<LimitOption>(50);
   const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
 
-  const load = useCallback(async (lim: LimitOption) => {
+  const load = useCallback((lim: LimitOption) => {
     setLoading(true);
-    const data = await fetchRecentCompleted(type, lim);
-    setResults(data);
-    setLoading(false);
+    fetchRecentCompleted(type, lim).then((data) => {
+      setResults(data);
+      setLoading(false);
+    });
   }, [fetchRecentCompleted, type]);
 
   useEffect(() => {
@@ -179,9 +180,16 @@ export function RecentCompleted({ type, onEdit }: RecentCompletedProps) {
         <div className="space-y-8">
           {GROUP_ORDER.filter((g) => groups[g]?.length > 0).map((group) => (
             <div key={group} className="space-y-3">
-              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest px-1">
-                {group} — {groups[group].length} invoice{groups[group].length !== 1 ? "s" : ""}
-              </h2>
+              <div className="flex items-center justify-between px-1">
+                <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+                  {group} — {groups[group].length} invoice{groups[group].length !== 1 ? "s" : ""}
+                </h2>
+                {SHOW_TOTAL_FOR.has(group) && (
+                  <span className={`text-sm font-bold ${accentColor}`}>
+                    {formatCurrency(groups[group].reduce((s, inv) => s + inv.total, 0))}
+                  </span>
+                )}
+              </div>
 
               {/* Desktop table */}
               <div className="hidden sm:block">
