@@ -11,10 +11,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CheckCircle2, Banknote, Download, Share, Eye, RefreshCw, User } from "lucide-react";
+import { CheckCircle2, Banknote, Download, Share, Send, Eye, RefreshCw, User } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency } from "@/lib/utils";
-import { generatePDF, shareViaWhatsApp } from "@/lib/pdf-utils";
+import { generatePDF, sharePDF, shareViaWhatsApp } from "@/lib/pdf-utils";
 import { InvoicePrint } from "@/components/invoice-print";
 import { InvoiceStatusManager } from "@/components/invoice-status-manager";
 import { toast } from "@/hooks/use-toast";
@@ -90,6 +90,20 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
       await shareViaWhatsApp(invoice);
     } catch {
       toast({ title: "Error sharing invoice", variant: "destructive" });
+    }
+  };
+
+  const handleSharePDF = async (invoice: Invoice) => {
+    try {
+      const result = await sharePDF(invoice);
+      if (result === "downloaded") {
+        toast({
+          title: "PDF downloaded",
+          description: "Direct sharing isn't supported on this browser, so the file was downloaded instead.",
+        });
+      }
+    } catch {
+      toast({ title: "Error sharing PDF", variant: "destructive" });
     }
   };
 
@@ -256,6 +270,9 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
                                   <Button variant="ghost" size="sm" onClick={() => handleDownloadPDF(invoice)}>
                                     <Download className="h-4 w-4" />
                                   </Button>
+                                  <Button variant="ghost" size="sm" onClick={() => handleSharePDF(invoice)}>
+                                    <Send className="h-4 w-4" />
+                                  </Button>
                                   <Button variant="ghost" size="sm" onClick={() => handleShareWhatsApp(invoice)}>
                                     <Share className="h-4 w-4" />
                                   </Button>
@@ -321,6 +338,9 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
                         </Button>
                         <Button variant="outline" size="sm" className="flex-1" onClick={() => handleDownloadPDF(invoice)}>
                           <Download className="h-4 w-4 mr-1" /> PDF
+                        </Button>
+                        <Button variant="outline" size="sm" className="flex-1" onClick={() => handleSharePDF(invoice)}>
+                          <Send className="h-4 w-4 mr-1" /> Send
                         </Button>
                         <Button variant="outline" size="sm" className="flex-1" onClick={() => handleShareWhatsApp(invoice)}>
                           <Share className="h-4 w-4 mr-1" /> Share

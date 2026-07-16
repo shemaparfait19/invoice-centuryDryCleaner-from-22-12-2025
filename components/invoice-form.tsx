@@ -64,6 +64,11 @@ interface InvoiceFormProps {
 
 export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
   const [showSuggestions, setShowSuggestions] = useState(false);
+  // Index of the item row whose service-suggestion dropdown is open, or
+  // null when none are. Only ever one open at a time, and it closes as
+  // soon as a suggestion is picked or the field loses focus, so it never
+  // lingers over the Quantity/Unit Price fields beneath it.
+  const [activeItemSuggestion, setActiveItemSuggestion] = useState<number | null>(null);
   const clientInputRef = useRef<HTMLInputElement | null>(null);
   const { invoices, clients, addInvoice, updateInvoice, addClient, loading } =
     useSupabaseStore();
@@ -414,16 +419,33 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
                     <Input
                       {...form.register(`items.${index}.description`)}
                       placeholder="Start typing a service..."
+                      autoComplete="off"
                       onChange={(e) => {
                         form.setValue(
                           `items.${index}.description`,
                           e.target.value
                         );
+                        setActiveItemSuggestion(index);
                       }}
+                      onFocus={() => {
+                        if (form.getValues(`items.${index}.description`)?.trim()) {
+                          setActiveItemSuggestion(index);
+                        }
+                      }}
+                      onBlur={() =>
+                        setTimeout(
+                          () =>
+                            setActiveItemSuggestion((cur) =>
+                              cur === index ? null : cur
+                            ),
+                          150
+                        )
+                      }
                     />
-                    {form.watch(`items.${index}.description`) && (
-                      <div className="absolute z-10 mt-1 w-full max-h-40 overflow-auto rounded border bg-white shadow">
-                        {SERVICES.filter((s) =>
+                    {activeItemSuggestion === index &&
+                      form.watch(`items.${index}.description`) &&
+                      (() => {
+                        const matches = SERVICES.filter((s) =>
                           s
                             .toLowerCase()
                             .includes(
@@ -431,22 +453,37 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
                                 form.watch(`items.${index}.description`) || ""
                               ).toLowerCase()
                             )
-                        )
-                          .slice(0, 8)
-                          .map((s) => (
-                            <button
-                              type="button"
-                              key={s}
-                              className="w-full text-left px-3 py-2 hover:bg-muted"
-                              onClick={() =>
-                                form.setValue(`items.${index}.description`, s)
-                              }
-                            >
-                              {s}
-                            </button>
-                          ))}
-                      </div>
-                    )}
+                        ).slice(0, 8);
+                        // Nothing to suggest, or the field already exactly
+                        // matches the only suggestion — no point showing it.
+                        if (
+                          matches.length === 0 ||
+                          (matches.length === 1 &&
+                            matches[0] === form.watch(`items.${index}.description`))
+                        ) {
+                          return null;
+                        }
+                        return (
+                          <div className="absolute z-20 mt-1 w-full max-h-40 overflow-auto rounded border bg-white shadow">
+                            {matches.map((s) => (
+                              <button
+                                type="button"
+                                key={s}
+                                className="w-full text-left px-3 py-2 hover:bg-muted"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  form.setValue(`items.${index}.description`, s, {
+                                    shouldValidate: true,
+                                  });
+                                  setActiveItemSuggestion(null);
+                                }}
+                              >
+                                {s}
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()}
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">

@@ -41,6 +41,7 @@ import {
   Trash2,
   Download,
   Share,
+  Send,
   Eye,
   StickyNote,
   Tags,
@@ -48,7 +49,7 @@ import {
 } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency } from "@/lib/utils";
-import { generatePDF, shareViaWhatsApp } from "@/lib/pdf-utils";
+import { generatePDF, sharePDF, shareViaWhatsApp } from "@/lib/pdf-utils";
 import { InvoicePrint } from "@/components/invoice-print";
 import { toast } from "@/hooks/use-toast";
 import type { Invoice } from "@/lib/types";
@@ -222,6 +223,24 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
     } catch (error) {
       toast({
         title: "Error sharing invoice",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleSharePDF = async (invoice: Invoice) => {
+    try {
+      const result = await sharePDF(invoice);
+      if (result === "downloaded") {
+        toast({
+          title: "PDF downloaded",
+          description: "Direct sharing isn't supported on this browser, so the file was downloaded instead.",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error sharing PDF",
         description: "Please try again.",
         variant: "destructive",
       });
@@ -521,6 +540,15 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={() => handleSharePDF(invoice)}
+                    className="flex-1 sm:flex-none"
+                  >
+                    <Send className="h-4 w-4 mr-2" />
+                    Send PDF
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => handleShareWhatsApp(invoice)}
                     className="flex-1 sm:flex-none"
                   >
@@ -685,6 +713,10 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                         <ContextMenuItem onClick={(e) => { e.stopPropagation(); handleDownloadPDF(invoice); }}>
                           <Download className="h-4 w-4 mr-2" />
                           Download PDF
+                        </ContextMenuItem>
+                        <ContextMenuItem onClick={(e) => { e.stopPropagation(); handleSharePDF(invoice); }}>
+                          <Send className="h-4 w-4 mr-2" />
+                          Send PDF
                         </ContextMenuItem>
                         <ContextMenuItem onClick={(e) => { e.stopPropagation(); handleShareWhatsApp(invoice); }}>
                           <Share className="h-4 w-4 mr-2" />
