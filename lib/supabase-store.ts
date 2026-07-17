@@ -409,7 +409,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
       } catch {}
 
       toast({
-        title: "Client updated successfully!",
+        title: "Client updated successfully!!",
       });
     } catch (error: any) {
       console.error("Error updating client:", error);
