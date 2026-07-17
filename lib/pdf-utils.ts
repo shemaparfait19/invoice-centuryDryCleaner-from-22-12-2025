@@ -55,7 +55,12 @@ async function buildInvoicePdf(
   pdf.addImage(imgData, "JPEG", 0, 0, imgWidth, imgHeight, undefined, "FAST");
 
   const dateFolder = createDateFolder();
-  const filename = `invoice-${invoice.id}-${dateFolder}.pdf`;
+  const safeClientName = invoice.client.name
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const nameSegment = safeClientName ? `${safeClientName}-` : "";
+  const filename = `invoice-${invoice.id}-${nameSegment}${dateFolder}.pdf`;
   return { pdf, filename };
 }
 
