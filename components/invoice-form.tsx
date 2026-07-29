@@ -155,14 +155,6 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
     }
   }, [editingInvoice, form]);
 
-  // New invoices must go through the drop-off confirmation before saving —
-  // open it as soon as the create form mounts.
-  useEffect(() => {
-    if (!editingId) {
-      setDropoffOpen(true);
-    }
-  }, [editingId]);
-
   const clientNameValue = form.watch("clientName") || "";
 
   const clientSuggestions = clientNameValue.trim().length > 0
