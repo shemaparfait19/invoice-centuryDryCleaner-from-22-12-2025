@@ -16,6 +16,9 @@ export interface InvoiceItem {
   quantity: number;
   unitPrice: number;
   totalPrice: number;
+  color?: string;
+  hangersCount?: number;
+  coversCount?: number;
 }
 
 export interface Invoice {

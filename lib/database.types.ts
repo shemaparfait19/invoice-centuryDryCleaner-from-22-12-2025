@@ -160,6 +160,9 @@ export interface Database {
           quantity: number;
           unit_price: number;
           total_price: number;
+          color: string | null;
+          hangers_count: number;
+          covers_count: number;
           created_at: string;
         };
         Insert: {
@@ -169,6 +172,9 @@ export interface Database {
           quantity: number;
           unit_price: number;
           total_price: number;
+          color?: string | null;
+          hangers_count?: number;
+          covers_count?: number;
           created_at?: string;
         };
         Update: {
@@ -178,6 +184,9 @@ export interface Database {
           quantity?: number;
           unit_price?: number;
           total_price?: number;
+          color?: string | null;
+          hangers_count?: number;
+          covers_count?: number;
           created_at?: string;
         };
       };

@@ -42,6 +42,9 @@ const invoiceSchema = z.object({
         description: z.string().min(1, "Description is required"),
         quantity: z.number().min(1, "Quantity must be at least 1"),
         unitPrice: z.number().min(0, "Unit price must be positive"),
+        color: z.string().optional(),
+        hangersCount: z.number().min(0, "Cannot be negative").optional(),
+        coversCount: z.number().min(0, "Cannot be negative").optional(),
       })
     )
     .min(1, "At least one item is required"),
@@ -83,7 +86,16 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
       clientName: "",
       clientPhone: "",
       clientAddress: "",
-      items: [{ description: "", quantity: 1, unitPrice: 0 }],
+      items: [
+        {
+          description: "",
+          quantity: 1,
+          unitPrice: 0,
+          color: "",
+          hangersCount: 0,
+          coversCount: 0,
+        },
+      ],
       paymentMethod: "",
       createdDate: new Date().toISOString().slice(0, 10),
       pickupDate: "",
@@ -398,7 +410,14 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
               <Button
                 type="button"
                 onClick={() =>
-                  append({ description: "", quantity: 1, unitPrice: 0 })
+                  append({
+                    description: "",
+                    quantity: 1,
+                    unitPrice: 0,
+                    color: "",
+                    hangersCount: 0,
+                    coversCount: 0,
+                  })
                 }
                 className="w-full sm:w-auto"
               >
@@ -506,6 +525,35 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
                       })}
                       min="0"
                       step="0.01"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <Label>Color</Label>
+                    <Input
+                      {...form.register(`items.${index}.color`)}
+                      placeholder="e.g. Blue"
+                    />
+                  </div>
+                  <div>
+                    <Label>Hangers Brought</Label>
+                    <Input
+                      type="number"
+                      {...form.register(`items.${index}.hangersCount`, {
+                        valueAsNumber: true,
+                      })}
+                      min="0"
+                    />
+                  </div>
+                  <div>
+                    <Label>Covers Brought</Label>
+                    <Input
+                      type="number"
+                      {...form.register(`items.${index}.coversCount`, {
+                        valueAsNumber: true,
+                      })}
+                      min="0"
                     />
                   </div>
                 </div>

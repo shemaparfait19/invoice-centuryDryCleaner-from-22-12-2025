@@ -207,6 +207,26 @@ export const InvoicePrint = forwardRef<HTMLDivElement, InvoicePrintProps>(
                     style={{ fontSize: "13px", fontWeight: "600" }}
                   >
                     {item.description}
+                    {(item.color ||
+                      !!item.hangersCount ||
+                      !!item.coversCount) && (
+                      <div
+                        className="font-normal text-gray-600 mt-1"
+                        style={{ fontSize: "11px", fontWeight: "400" }}
+                      >
+                        {[
+                          item.color ? `Color: ${item.color}` : null,
+                          item.hangersCount
+                            ? `Hangers: ${item.hangersCount}`
+                            : null,
+                          item.coversCount
+                            ? `Covers: ${item.coversCount}`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </div>
+                    )}
                   </td>
                   <td
                     className="border-2 border-black px-3 py-3 text-center font-bold"
