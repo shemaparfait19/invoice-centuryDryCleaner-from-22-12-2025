@@ -116,6 +116,10 @@ export interface Database {
           created_by_phone: string | null;
           paid: boolean | null;
           section: string | null;
+          hangers_brought: boolean | null;
+          hangers_count: number | null;
+          covers_brought: boolean | null;
+          covers_count: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -132,6 +136,10 @@ export interface Database {
           created_by_phone?: string | null;
           paid?: boolean | null;
           section?: string | null;
+          hangers_brought?: boolean | null;
+          hangers_count?: number | null;
+          covers_brought?: boolean | null;
+          covers_count?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -148,6 +156,10 @@ export interface Database {
           created_by_phone?: string | null;
           paid?: boolean | null;
           section?: string | null;
+          hangers_brought?: boolean | null;
+          hangers_count?: number | null;
+          covers_brought?: boolean | null;
+          covers_count?: number | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -160,9 +172,6 @@ export interface Database {
           quantity: number;
           unit_price: number;
           total_price: number;
-          color: string | null;
-          hangers_count: number;
-          covers_count: number;
           created_at: string;
         };
         Insert: {
@@ -172,9 +181,6 @@ export interface Database {
           quantity: number;
           unit_price: number;
           total_price: number;
-          color?: string | null;
-          hangers_count?: number;
-          covers_count?: number;
           created_at?: string;
         };
         Update: {
@@ -184,9 +190,6 @@ export interface Database {
           quantity?: number;
           unit_price?: number;
           total_price?: number;
-          color?: string | null;
-          hangers_count?: number;
-          covers_count?: number;
           created_at?: string;
         };
       };

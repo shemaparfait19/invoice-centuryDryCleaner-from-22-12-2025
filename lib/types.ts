@@ -16,9 +16,6 @@ export interface InvoiceItem {
   quantity: number;
   unitPrice: number;
   totalPrice: number;
-  color?: string;
-  hangersCount?: number;
-  coversCount?: number;
 }
 
 export interface Invoice {
@@ -33,6 +30,12 @@ export interface Invoice {
   pickupTime?: string;
   notes?: string;
   section?: string;
+  // Drop-off details, confirmed once per invoice via the required dialog
+  // in the invoice form so staff never have to rely on memory at pickup.
+  hangersBrought?: boolean;
+  hangersCount?: number;
+  coversBrought?: boolean;
+  coversCount?: number;
   createdByName?: string;
   createdByPhone?: string;
   completedByName?: string;

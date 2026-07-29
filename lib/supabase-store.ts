@@ -519,9 +519,6 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
               quantity: item.quantity,
               unitPrice: parseFloat(item.unit_price),
               totalPrice: parseFloat(item.total_price),
-              color: item.color || undefined,
-              hangersCount: item.hangers_count ?? 0,
-              coversCount: item.covers_count ?? 0,
             })),
             total: parseFloat(invoice.total),
             paymentMethod: invoice.payment_method,
@@ -531,6 +528,10 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             pickupTime: invoice.pickup_time || undefined,
             notes: invoice.notes || undefined,
             section: invoice.section || undefined,
+            hangersBrought: invoice.hangers_brought ?? undefined,
+            hangersCount: invoice.hangers_count ?? undefined,
+            coversBrought: invoice.covers_brought ?? undefined,
+            coversCount: invoice.covers_count ?? undefined,
             createdByName: invoice.created_by_name || undefined,
             createdByPhone: invoice.created_by_phone || undefined,
             completedByName: invoice.completed_by_name || undefined,
@@ -623,9 +624,6 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
               quantity: item.quantity,
               unitPrice: parseFloat(item.unit_price),
               totalPrice: parseFloat(item.total_price),
-              color: item.color || undefined,
-              hangersCount: item.hangers_count ?? 0,
-              coversCount: item.covers_count ?? 0,
             })),
             total: parseFloat(invoice.total),
             paymentMethod: invoice.payment_method,
@@ -635,6 +633,10 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             pickupTime: invoice.pickup_time || undefined,
             notes: invoice.notes || undefined,
             section: invoice.section || undefined,
+            hangersBrought: invoice.hangers_brought ?? undefined,
+            hangersCount: invoice.hangers_count ?? undefined,
+            coversBrought: invoice.covers_brought ?? undefined,
+            coversCount: invoice.covers_count ?? undefined,
             createdByName: invoice.created_by_name || undefined,
             createdByPhone: invoice.created_by_phone || undefined,
             completedByName: invoice.completed_by_name || undefined,
@@ -749,9 +751,6 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             quantity: item.quantity,
             unitPrice: parseFloat(item.unit_price),
             totalPrice: parseFloat(item.total_price),
-            color: item.color || undefined,
-            hangersCount: item.hangers_count ?? 0,
-            coversCount: item.covers_count ?? 0,
           })),
           total: parseFloat(invoice.total),
           paymentMethod: invoice.payment_method,
@@ -761,6 +760,10 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           pickupTime: invoice.pickup_time || undefined,
           notes: invoice.notes || undefined,
           section: invoice.section || undefined,
+          hangersBrought: invoice.hangers_brought ?? undefined,
+          hangersCount: invoice.hangers_count ?? undefined,
+          coversBrought: invoice.covers_brought ?? undefined,
+          coversCount: invoice.covers_count ?? undefined,
           createdByName: invoice.created_by_name || undefined,
           createdByPhone: invoice.created_by_phone || undefined,
           completedByName: invoice.completed_by_name || undefined,
@@ -822,9 +825,6 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
               quantity: item.quantity,
               unitPrice: parseFloat(item.unit_price),
               totalPrice: parseFloat(item.total_price),
-              color: item.color || undefined,
-              hangersCount: item.hangers_count ?? 0,
-              coversCount: item.covers_count ?? 0,
             })),
             total: parseFloat(invoice.total),
             paymentMethod: invoice.payment_method,
@@ -834,6 +834,10 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             pickupTime: invoice.pickup_time || undefined,
             notes: invoice.notes || undefined,
             section: invoice.section || undefined,
+            hangersBrought: invoice.hangers_brought ?? undefined,
+            hangersCount: invoice.hangers_count ?? undefined,
+            coversBrought: invoice.covers_brought ?? undefined,
+            coversCount: invoice.covers_count ?? undefined,
             createdByName: invoice.created_by_name || undefined,
             createdByPhone: invoice.created_by_phone || undefined,
             completedByName: invoice.completed_by_name || undefined,
@@ -947,9 +951,6 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             quantity: item.quantity,
             unitPrice: parseFloat(item.unit_price),
             totalPrice: parseFloat(item.total_price),
-            color: item.color || undefined,
-            hangersCount: item.hangers_count ?? 0,
-            coversCount: item.covers_count ?? 0,
           })),
           total: parseFloat(invoice.total),
           paymentMethod: invoice.payment_method,
@@ -959,6 +960,10 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           pickupTime: invoice.pickup_time || undefined,
           notes: invoice.notes || undefined,
           section: invoice.section || undefined,
+          hangersBrought: invoice.hangers_brought ?? undefined,
+          hangersCount: invoice.hangers_count ?? undefined,
+          coversBrought: invoice.covers_brought ?? undefined,
+          coversCount: invoice.covers_count ?? undefined,
           createdByName: invoice.created_by_name || undefined,
           createdByPhone: invoice.created_by_phone || undefined,
           completedByName: invoice.completed_by_name || undefined,
@@ -1018,6 +1023,14 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           pickup_time: invoiceData.pickupTime || null,
           notes: invoiceData.notes || null,
           section: invoiceData.section || null,
+          hangers_brought: invoiceData.hangersBrought ?? null,
+          hangers_count: invoiceData.hangersBrought
+            ? invoiceData.hangersCount ?? 0
+            : null,
+          covers_brought: invoiceData.coversBrought ?? null,
+          covers_count: invoiceData.coversBrought
+            ? invoiceData.coversCount ?? 0
+            : null,
           created_by_name: get().currentUserName || null,
           created_by_phone: get().currentUserPhone || null,
           // Allow overriding created_at when provided
@@ -1043,9 +1056,6 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           quantity: item.quantity,
           unit_price: item.unitPrice,
           total_price: item.totalPrice,
-          color: item.color || null,
-          hangers_count: item.hangersCount ?? 0,
-          covers_count: item.coversCount ?? 0,
         }));
 
         console.log("Inserting invoice items:", itemsToInsert);
@@ -1135,6 +1145,18 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         updateData.pickup_time = updates.pickupTime || null;
       if (updates.notes !== undefined) updateData.notes = updates.notes || null;
       if (updates.section !== undefined) updateData.section = updates.section || null;
+      if (updates.hangersBrought !== undefined) {
+        updateData.hangers_brought = updates.hangersBrought;
+        updateData.hangers_count = updates.hangersBrought
+          ? updates.hangersCount ?? 0
+          : null;
+      }
+      if (updates.coversBrought !== undefined) {
+        updateData.covers_brought = updates.coversBrought;
+        updateData.covers_count = updates.coversBrought
+          ? updates.coversCount ?? 0
+          : null;
+      }
       if ((updates as any).createdAt)
         updateData.created_at = (updates as any).createdAt;
 
@@ -1169,9 +1191,6 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             quantity: item.quantity,
             unit_price: item.unitPrice,
             total_price: item.totalPrice,
-            color: item.color || null,
-            hangers_count: item.hangersCount ?? 0,
-            covers_count: item.coversCount ?? 0,
           }));
 
           const { error: itemsError } = await supabase

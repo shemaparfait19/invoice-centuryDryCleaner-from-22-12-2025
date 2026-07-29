@@ -16,6 +16,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Plus, Trash2 } from "lucide-react";
 import { SERVICES } from "@/lib/services";
 import { useSupabaseStore } from "@/lib/supabase-store";
@@ -42,9 +50,6 @@ const invoiceSchema = z.object({
         description: z.string().min(1, "Description is required"),
         quantity: z.number().min(1, "Quantity must be at least 1"),
         unitPrice: z.number().min(0, "Unit price must be positive"),
-        color: z.string().optional(),
-        hangersCount: z.number().min(0, "Cannot be negative").optional(),
-        coversCount: z.number().min(0, "Cannot be negative").optional(),
       })
     )
     .min(1, "At least one item is required"),
@@ -73,6 +78,27 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
   // lingers over the Quantity/Unit Price fields beneath it.
   const [activeItemSuggestion, setActiveItemSuggestion] = useState<number | null>(null);
   const clientInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Drop-off details (hangers/covers) — asked once per invoice via a
+  // required dialog so staff never have to rely on memory at pickup.
+  const [dropoffOpen, setDropoffOpen] = useState(false);
+  const [dropoffConfirmed, setDropoffConfirmed] = useState(false);
+  const [hangersBrought, setHangersBrought] = useState<boolean | null>(null);
+  const [hangersCount, setHangersCount] = useState(1);
+  const [coversBrought, setCoversBrought] = useState<boolean | null>(null);
+  const [coversCount, setCoversCount] = useState(1);
+
+  const canConfirmDropoff =
+    hangersBrought !== null &&
+    coversBrought !== null &&
+    (!hangersBrought || hangersCount >= 1) &&
+    (!coversBrought || coversCount >= 1);
+
+  const handleConfirmDropoff = () => {
+    if (!canConfirmDropoff) return;
+    setDropoffConfirmed(true);
+    setDropoffOpen(false);
+  };
   const { invoices, clients, addInvoice, updateInvoice, addClient, loading } =
     useSupabaseStore();
 
@@ -86,16 +112,7 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
       clientName: "",
       clientPhone: "",
       clientAddress: "",
-      items: [
-        {
-          description: "",
-          quantity: 1,
-          unitPrice: 0,
-          color: "",
-          hangersCount: 0,
-          coversCount: 0,
-        },
-      ],
+      items: [{ description: "", quantity: 1, unitPrice: 0 }],
       paymentMethod: "",
       createdDate: new Date().toISOString().slice(0, 10),
       pickupDate: "",
@@ -127,8 +144,24 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
         notes: editingInvoice.notes || "",
         status: editingInvoice.status,
       });
+      setHangersBrought(editingInvoice.hangersBrought ?? null);
+      setHangersCount(editingInvoice.hangersCount || 1);
+      setCoversBrought(editingInvoice.coversBrought ?? null);
+      setCoversCount(editingInvoice.coversCount || 1);
+      setDropoffConfirmed(
+        editingInvoice.hangersBrought !== undefined &&
+          editingInvoice.coversBrought !== undefined
+      );
     }
   }, [editingInvoice, form]);
+
+  // New invoices must go through the drop-off confirmation before saving —
+  // open it as soon as the create form mounts.
+  useEffect(() => {
+    if (!editingId) {
+      setDropoffOpen(true);
+    }
+  }, [editingId]);
 
   const clientNameValue = form.watch("clientName") || "";
 
@@ -171,6 +204,17 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
 
       if (!data.paymentMethod) {
         toast({ title: "Payment method is required", variant: "destructive" });
+        return;
+      }
+
+      if (!dropoffConfirmed) {
+        toast({
+          title: "Please confirm drop-off details",
+          description:
+            "Let us know whether the client brought hangers or covers before saving.",
+          variant: "destructive",
+        });
+        setDropoffOpen(true);
         return;
       }
 
@@ -262,6 +306,10 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
         pickupDate: data.pickupDate || undefined,
         pickupTime: data.pickupTime || undefined,
         notes: data.notes || undefined,
+        hangersBrought: hangersBrought ?? false,
+        hangersCount: hangersBrought ? hangersCount : undefined,
+        coversBrought: coversBrought ?? false,
+        coversCount: coversBrought ? coversCount : undefined,
       };
 
       console.log("Invoice data prepared:", invoiceData);
@@ -410,14 +458,7 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
               <Button
                 type="button"
                 onClick={() =>
-                  append({
-                    description: "",
-                    quantity: 1,
-                    unitPrice: 0,
-                    color: "",
-                    hangersCount: 0,
-                    coversCount: 0,
-                  })
+                  append({ description: "", quantity: 1, unitPrice: 0 })
                 }
                 className="w-full sm:w-auto"
               >
@@ -528,35 +569,6 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <Label>Color</Label>
-                    <Input
-                      {...form.register(`items.${index}.color`)}
-                      placeholder="e.g. Blue"
-                    />
-                  </div>
-                  <div>
-                    <Label>Hangers Brought</Label>
-                    <Input
-                      type="number"
-                      {...form.register(`items.${index}.hangersCount`, {
-                        valueAsNumber: true,
-                      })}
-                      min="0"
-                    />
-                  </div>
-                  <div>
-                    <Label>Covers Brought</Label>
-                    <Input
-                      type="number"
-                      {...form.register(`items.${index}.coversCount`, {
-                        valueAsNumber: true,
-                      })}
-                      min="0"
-                    />
-                  </div>
-                </div>
                 <div className="flex justify-end">
                   <Button
                     type="button"
@@ -578,6 +590,49 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
                 Total: {formatCurrency(calculateTotal())}
               </p>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Drop-off Details</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {dropoffConfirmed ? (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="secondary">
+                    Hangers: {hangersBrought ? hangersCount : "Not brought"}
+                  </Badge>
+                  <Badge variant="secondary">
+                    Covers: {coversBrought ? coversCount : "Not brought"}
+                  </Badge>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDropoffOpen(true)}
+                  className="w-full sm:w-auto"
+                >
+                  Edit
+                </Button>
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <p className="text-sm text-muted-foreground">
+                  Confirm whether the client brought hangers or covers with this order.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setDropoffOpen(true)}
+                  className="w-full sm:w-auto"
+                >
+                  Confirm Details
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -698,6 +753,112 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
           </CardContent>
         </Card>
       </form>
+
+      <Dialog
+        open={dropoffOpen}
+        onOpenChange={(open) => {
+          // Required step — block dismissal via overlay/Escape/X until answered.
+          if (!open && !dropoffConfirmed) return;
+          setDropoffOpen(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Drop-off Details</DialogTitle>
+            <DialogDescription>
+              Confirm what the client brought with this order so nothing gets
+              mixed up or forgotten by pickup time.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <Label>Did the client bring hangers?</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={hangersBrought === true ? "default" : "outline"}
+                  className="flex-1"
+                  onClick={() => setHangersBrought(true)}
+                >
+                  Yes
+                </Button>
+                <Button
+                  type="button"
+                  variant={hangersBrought === false ? "default" : "outline"}
+                  className="flex-1"
+                  onClick={() => setHangersBrought(false)}
+                >
+                  No
+                </Button>
+              </div>
+              {hangersBrought === true && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">
+                    How many hangers?
+                  </Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={hangersCount}
+                    onChange={(e) =>
+                      setHangersCount(Math.max(1, parseInt(e.target.value, 10) || 1))
+                    }
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Did the client bring covers?</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={coversBrought === true ? "default" : "outline"}
+                  className="flex-1"
+                  onClick={() => setCoversBrought(true)}
+                >
+                  Yes
+                </Button>
+                <Button
+                  type="button"
+                  variant={coversBrought === false ? "default" : "outline"}
+                  className="flex-1"
+                  onClick={() => setCoversBrought(false)}
+                >
+                  No
+                </Button>
+              </div>
+              {coversBrought === true && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">
+                    How many covers?
+                  </Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={coversCount}
+                    onChange={(e) =>
+                      setCoversCount(Math.max(1, parseInt(e.target.value, 10) || 1))
+                    }
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              onClick={handleConfirmDropoff}
+              disabled={!canConfirmDropoff}
+              className="w-full sm:w-auto"
+            >
+              Confirm & Continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
