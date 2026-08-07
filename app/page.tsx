@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import {
   Card,
   CardContent,
@@ -19,6 +20,7 @@ import {
   Bell,
   CheckCircle2,
   Banknote,
+  CalendarClock,
 } from "lucide-react";
 import { InvoiceForm } from "@/components/invoice-form";
 import { InvoiceList } from "@/components/invoice-list";
@@ -113,6 +115,16 @@ export default function HomePage() {
     (inv) => inv.status === "completed"
   ).length;
   const pickupNotifications = getPickupNotifications();
+
+  // Pickups that are already late or due within the next 2 hours — surfaced
+  // as a badge on the Pickup Schedule nav link so it's hard to miss.
+  const urgentPickupsCount = invoices.filter((invoice) => {
+    if (invoice.status !== "pending" || !invoice.pickupDate || !invoice.pickupTime) {
+      return false;
+    }
+    const pickupAt = new Date(`${invoice.pickupDate}T${invoice.pickupTime}`);
+    return pickupAt.getTime() - Date.now() <= 2 * 60 * 60 * 1000;
+  }).length;
 
   const handleEditInvoice = (invoiceId: string) => {
     setEditingInvoice(invoiceId);
@@ -395,6 +407,20 @@ export default function HomePage() {
                     <Plus className="h-4 w-4 mr-2" />
                     Create New Invoice
                   </Button>
+                  <Link href="/pickups" className="block">
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start"
+                    >
+                      <CalendarClock className="h-4 w-4 mr-2 text-orange-600" />
+                      Pickup Schedule
+                      {urgentPickupsCount > 0 && (
+                        <span className="ml-auto bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
+                          {urgentPickupsCount}
+                        </span>
+                      )}
+                    </Button>
+                  </Link>
                   <Button
                     onClick={() => setCurrentView("clients")}
                     variant="outline"
@@ -492,6 +518,21 @@ export default function HomePage() {
                 <Banknote className="h-4 w-4 mr-1" />
                 Paid
               </Button>
+              <Link href="/pickups">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="flex-1 sm:flex-none"
+                >
+                  <CalendarClock className="h-4 w-4 mr-1" />
+                  Pickup Schedule
+                  {urgentPickupsCount > 0 && (
+                    <span className="ml-2 bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
+                      {urgentPickupsCount}
+                    </span>
+                  )}
+                </Button>
+              </Link>
               <Button
                 variant={currentView === "clients" ? "default" : "ghost"}
                 onClick={() => setCurrentView("clients")}
