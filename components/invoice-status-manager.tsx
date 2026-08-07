@@ -87,11 +87,18 @@ export function InvoiceStatusManager({
     setIsChangingStatus(true);
   };
 
+  const blockedByUnpaidStatus =
+    newStatus === "completed" && !invoice.paid;
+
   const confirmStatusChange = async () => {
-    if (newStatus) {
+    if (!newStatus || blockedByUnpaidStatus) return;
+    try {
       await updateInvoiceStatus(invoice.id, newStatus);
       setIsChangingStatus(false);
       setNewStatus(null);
+    } catch {
+      // Store already surfaced a toast — just leave the dialog open so
+      // the user can see why and go mark it paid.
     }
   };
 
@@ -160,9 +167,18 @@ export function InvoiceStatusManager({
                 {getStatusChangeMessage()}
               </AlertDialogDescription>
             </AlertDialogHeader>
+            {blockedByUnpaidStatus && (
+              <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                This invoice is still <strong>UNPAID</strong>. Mark payment as
+                received before completing it.
+              </p>
+            )}
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmStatusChange}>
+              <AlertDialogAction
+                onClick={confirmStatusChange}
+                disabled={blockedByUnpaidStatus}
+              >
                 {loading ? (
                   <RefreshCw className="h-4 w-4 animate-spin mr-2" />
                 ) : null}
@@ -321,9 +337,18 @@ export function InvoiceStatusManager({
                 {getStatusChangeMessage()}
               </AlertDialogDescription>
             </AlertDialogHeader>
+            {blockedByUnpaidStatus && (
+              <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                This invoice is still <strong>UNPAID</strong>. Mark payment as
+                received (see the Payment section above) before completing it.
+              </p>
+            )}
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmStatusChange}>
+              <AlertDialogAction
+                onClick={confirmStatusChange}
+                disabled={blockedByUnpaidStatus}
+              >
                 {loading ? (
                   <RefreshCw className="h-4 w-4 animate-spin mr-2" />
                 ) : null}

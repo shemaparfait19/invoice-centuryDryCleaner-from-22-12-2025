@@ -199,6 +199,24 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
         return;
       }
 
+      // Same rule as everywhere else in the app: an invoice can't be
+      // marked completed unless payment is confirmed. On create, a
+      // non-UNPAID method means paid; on edit, the recorded paid flag is
+      // the source of truth since changing payment method here doesn't
+      // by itself mark it paid.
+      const effectivePaid = editingId
+        ? editingInvoice?.paid ?? false
+        : data.paymentMethod !== "UNPAID";
+      if (data.status === "completed" && !effectivePaid) {
+        toast({
+          title: "Payment not confirmed",
+          description:
+            "Cannot mark this invoice as completed until payment is confirmed. Choose a paid method or mark it paid first.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       if (!dropoffConfirmed) {
         toast({
           title: "Please confirm drop-off details",

@@ -1409,6 +1409,23 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
   },
 
   updateInvoiceStatus: async (id, status) => {
+    // Never let an invoice be marked completed without a confirmed
+    // payment — this is the single choke point every "mark completed"
+    // action in the app goes through, so the rule holds everywhere.
+    if (status === "completed") {
+      const invoice = get().invoices.find((inv) => inv.id === id);
+      if (invoice && !invoice.paid) {
+        const message =
+          "Cannot mark this invoice as completed — payment hasn't been confirmed yet. Mark it as paid first.";
+        toast({
+          title: "Payment not confirmed",
+          description: message,
+          variant: "destructive",
+        });
+        throw new Error(message);
+      }
+    }
+
     try {
       set({ loading: true, error: null });
 

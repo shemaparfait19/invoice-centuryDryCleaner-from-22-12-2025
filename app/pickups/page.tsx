@@ -115,6 +115,8 @@ export default function PickupSchedulePage() {
     setUpdatingId(id);
     try {
       await updateInvoiceStatus(id, "completed");
+    } catch {
+      // Store already surfaced a toast (e.g. payment not confirmed yet).
     } finally {
       setUpdatingId(null);
     }
