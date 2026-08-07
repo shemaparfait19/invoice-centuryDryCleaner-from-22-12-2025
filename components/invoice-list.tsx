@@ -46,6 +46,7 @@ import {
   StickyNote,
   Tags,
   User,
+  RefreshCw,
 } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency } from "@/lib/utils";
@@ -72,6 +73,7 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
   const [notesText, setNotesText] = useState("");
   const [sectionInvoice, setSectionInvoice] = useState<Invoice | null>(null);
   const [sectionSelected, setSectionSelected] = useState<string>("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // IntersectionObserver for infinite scroll
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -187,6 +189,27 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
     setIsSearchingDb(false);
     setSearchResults([]);
     setSearchTerm("");
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      if (isSearchingDb) {
+        const results = await searchInvoicesDb(searchTerm.trim());
+        setSearchResults(results);
+      } else {
+        await useSupabaseStore.getState().loadData();
+      }
+      toast({ title: "Invoices refreshed" });
+    } catch (error: any) {
+      toast({
+        title: "Failed to refresh",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const handleDelete = async (invoiceId: string) => {
@@ -307,7 +330,20 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
   return (
     <div className="space-y-4 p-4">
       <div className="flex flex-col space-y-4">
-        <h1 className="text-xl sm:text-2xl font-bold">All Invoices</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl sm:text-2xl font-bold">All Invoices</h1>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+          >
+            <RefreshCw
+              className={`h-4 w-4 sm:mr-2 ${isRefreshing ? "animate-spin" : ""}`}
+            />
+            <span className="hidden sm:inline">Refresh</span>
+          </Button>
+        </div>
         <div className="flex flex-col sm:flex-row sm:items-center space-y-3 sm:space-y-0 sm:space-x-4">
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
