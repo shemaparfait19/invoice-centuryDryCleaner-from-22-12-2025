@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef } from "react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatTime } from "@/lib/utils";
 import type { Invoice } from "@/lib/types";
 
 interface InvoicePrintProps {
@@ -148,7 +148,7 @@ export const InvoicePrint = forwardRef<HTMLDivElement, InvoicePrintProps>(
                   style={{ fontSize: "14px", fontWeight: "600" }}
                 >
                   <span className="font-bold">Pickup Time:</span>{" "}
-                  {invoice.pickupTime}
+                  {formatTime(invoice.pickupTime)}
                 </p>
               )}
               {(invoice.hangersBrought !== undefined ||

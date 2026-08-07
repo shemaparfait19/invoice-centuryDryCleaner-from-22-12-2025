@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Bell, Clock, User, X, Phone, CheckCircle, AlertTriangle } from 'lucide-react'
 import { useSupabaseStore } from '@/lib/supabase-store'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatTime } from '@/lib/utils'
 import type { Invoice } from '@/lib/types'
 
 export function PickupNotifications() {
@@ -130,7 +130,7 @@ export function PickupNotifications() {
                 <div className="flex items-center gap-2">
                   <Clock className="h-4 w-4 text-gray-600" />
                   <span className="text-sm font-medium text-orange-700">
-                    Scheduled: {invoice.pickupDate} at {invoice.pickupTime}
+                    Scheduled: {invoice.pickupDate} at {formatTime(invoice.pickupTime)}
                   </span>
                 </div>
 

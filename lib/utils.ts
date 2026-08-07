@@ -38,6 +38,19 @@ export function formatPhoneNumber(phone: string): string {
   return phone
 }
 
+// Converts a 24-hour "HH:MM" (or "HH:MM:SS") string, as stored from an
+// <input type="time"> or the database, into a 12-hour "h:mm AM/PM" string.
+export function formatTime(time?: string | null): string {
+  if (!time) return ""
+  const [hStr, mStr] = time.split(':')
+  const h = parseInt(hStr, 10)
+  const m = parseInt(mStr, 10)
+  if (Number.isNaN(h) || Number.isNaN(m)) return time
+  const period = h >= 12 ? 'PM' : 'AM'
+  const hour12 = h % 12 === 0 ? 12 : h % 12
+  return `${hour12}:${m.toString().padStart(2, '0')} ${period}`
+}
+
 export function createDateFolder(): string {
   const date = new Date()
   const year = date.getFullYear()

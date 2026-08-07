@@ -29,7 +29,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatTime } from "@/lib/utils";
 import type { Invoice } from "@/lib/types";
 
 interface InvoiceStatusManagerProps {
@@ -307,7 +307,7 @@ export function InvoiceStatusManager({
               <Clock className="h-4 w-4 text-muted-foreground" />
               <span>
                 <strong>Pickup:</strong> {invoice.pickupDate} at{" "}
-                {invoice.pickupTime}
+                {formatTime(invoice.pickupTime)}
               </span>
             </div>
           </div>

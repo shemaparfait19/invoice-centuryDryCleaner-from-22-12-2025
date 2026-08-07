@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSupabaseStore } from "@/lib/supabase-store";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatTime } from "@/lib/utils";
 import type { Invoice } from "@/lib/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -78,7 +78,14 @@ export default function PickupSchedulePage() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   useEffect(() => {
-    initializeDatabase();
+    // Avoid re-running the full connectivity check (and risking a false
+    // "offline" state) if the store was already initialized from another
+    // page — just refresh data instead.
+    if (useSupabaseStore.getState().isInitialized) {
+      useSupabaseStore.getState().loadData();
+    } else {
+      initializeDatabase();
+    }
   }, [initializeDatabase]);
 
   // Keep urgency colors current without a full page reload.
@@ -210,7 +217,7 @@ export default function PickupSchedulePage() {
                           month: "short",
                           day: "numeric",
                         })}{" "}
-                        at {invoice.pickupTime}
+                        at {formatTime(invoice.pickupTime)}
                       </div>
                     </div>
 

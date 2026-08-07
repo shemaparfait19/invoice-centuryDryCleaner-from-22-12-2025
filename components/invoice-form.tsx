@@ -27,7 +27,7 @@ import {
 import { Plus, Trash2 } from "lucide-react";
 import { SERVICES } from "@/lib/services";
 import { useSupabaseStore } from "@/lib/supabase-store";
-import { formatCurrency, generateInvoiceId } from "@/lib/utils";
+import { formatCurrency, formatTime, generateInvoiceId } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import type { Client, Invoice, InvoiceItem } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
@@ -695,6 +695,11 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
                   type="time"
                   {...form.register("pickupTime")}
                 />
+                {form.watch("pickupTime") && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {formatTime(form.watch("pickupTime"))}
+                  </p>
+                )}
               </div>
             </div>
 

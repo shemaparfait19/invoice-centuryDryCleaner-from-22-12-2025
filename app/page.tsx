@@ -79,7 +79,16 @@ export default function HomePage() {
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
   useEffect(() => {
-    initializeDatabase();
+    // If we've already connected once this session (e.g. navigating back
+    // from /pickups remounts this page), just refresh data instead of
+    // re-running the full connectivity check — a transient hiccup there
+    // would otherwise flip databaseReady to false and show the false
+    // "No Internet Connection" screen on every return trip.
+    if (useSupabaseStore.getState().isInitialized) {
+      useSupabaseStore.getState().loadData();
+    } else {
+      initializeDatabase();
+    }
   }, [initializeDatabase]);
 
   // Silently refresh data every 5 minutes (only data, never resets databaseReady)

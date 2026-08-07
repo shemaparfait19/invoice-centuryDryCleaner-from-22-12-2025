@@ -12,7 +12,7 @@ import {
   StickyNote,
 } from "lucide-react";
 import { InvoiceStatusManager } from "@/components/invoice-status-manager";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatTime } from "@/lib/utils";
 import type { Invoice } from "@/lib/types";
 
 interface InvoiceDashboardCardProps {
@@ -143,7 +143,7 @@ export function InvoiceDashboardCard({
           <div className="text-xs">
             <span className="text-muted-foreground">Pickup:</span>
             <p className={isPickupDue() ? "text-orange-700 font-medium" : ""}>
-              {invoice.pickupDate} at {invoice.pickupTime}
+              {invoice.pickupDate} at {formatTime(invoice.pickupTime)}
             </p>
           </div>
         )}
