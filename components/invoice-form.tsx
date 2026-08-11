@@ -87,6 +87,10 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
   const [hangersCount, setHangersCount] = useState(1);
   const [coversBrought, setCoversBrought] = useState<boolean | null>(null);
   const [coversCount, setCoversCount] = useState(1);
+  // True when the dialog was opened because the user tried to save without
+  // confirming drop-off details first — so confirming should immediately
+  // finish the save instead of making them press Create/Update again.
+  const [pendingSubmit, setPendingSubmit] = useState(false);
 
   const canConfirmDropoff =
     hangersBrought !== null &&
@@ -224,6 +228,7 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
             "Let us know whether the client brought hangers or covers before saving.",
           variant: "destructive",
         });
+        setPendingSubmit(true);
         setDropoffOpen(true);
         return;
       }
@@ -352,6 +357,16 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
       });
     }
   };
+
+  // If saving was blocked because drop-off details weren't confirmed yet,
+  // confirming them in the dialog should finish the save right away rather
+  // than making the user press Create/Update Invoice a second time.
+  useEffect(() => {
+    if (pendingSubmit && dropoffConfirmed) {
+      setPendingSubmit(false);
+      form.handleSubmit(onSubmit)();
+    }
+  }, [pendingSubmit, dropoffConfirmed]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-4 p-4">
