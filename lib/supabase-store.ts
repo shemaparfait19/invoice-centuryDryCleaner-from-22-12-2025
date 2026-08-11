@@ -1494,9 +1494,29 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
   },
 
   updateInvoicePaid: async (id, paid) => {
+    const { currentUserName, currentUserPhone } = get();
+    const previous = get().invoices.find((inv) => inv.id === id);
+    if (!previous) return;
+
+    // Optimistic update: reflect the toggle instantly instead of making the
+    // whole UI wait (and disabling unrelated buttons via the shared
+    // `loading` flag) for the round-trip to Supabase to finish.
+    set((state) => ({
+      invoices: state.invoices.map((inv) =>
+        inv.id === id
+          ? {
+              ...inv,
+              paid,
+              updatedAt: new Date().toISOString(),
+              paidByName: paid ? (currentUserName || undefined) : undefined,
+              paidByPhone: paid ? (currentUserPhone || undefined) : undefined,
+            }
+          : inv
+      ),
+      error: null,
+    }));
+
     try {
-      set({ loading: true, error: null });
-      const { currentUserName, currentUserPhone } = get();
       const hasActorCols = await checkActorColumns();
 
       const paidPayload: Record<string, any> = {
@@ -1513,20 +1533,9 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
       if (error) {
         throw new Error(`Failed to update paid flag: ${error.message}`);
       }
-      set((state) => ({
-        invoices: state.invoices.map((inv) =>
-          inv.id === id
-            ? {
-                ...inv,
-                paid,
-                updatedAt: new Date().toISOString(),
-                paidByName: paid ? (currentUserName || undefined) : undefined,
-                paidByPhone: paid ? (currentUserPhone || undefined) : undefined,
-              }
-            : inv
-        ),
-        loading: false,
-      }));
+
+      toast({ title: paid ? "Marked as PAID" : "Marked as UNPAID" });
+
       try {
         await supabase.from("audit_logs").insert({
           action: "payment_update",
@@ -1537,10 +1546,13 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           changes: { paid },
         });
       } catch {}
-      toast({ title: paid ? "Marked as PAID" : "Marked as UNPAID" });
     } catch (error: any) {
       console.error("Error updating paid flag:", error);
-      set({ loading: false, error: error.message });
+      // Roll back the optimistic change since it didn't actually save.
+      set((state) => ({
+        invoices: state.invoices.map((inv) => (inv.id === id ? previous : inv)),
+        error: error.message,
+      }));
       toast({
         title: "Error updating paid flag",
         description: error.message,
@@ -1550,10 +1562,29 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
   },
 
   updateInvoicePaymentMethod: async (id, method) => {
+    const { currentUserName, currentUserPhone } = get();
+    const previous = get().invoices.find((inv) => inv.id === id);
+    if (!previous) return;
+    const isPaying = method !== "UNPAID";
+
+    // Optimistic update — see updateInvoicePaid for why.
+    set((state) => ({
+      invoices: state.invoices.map((inv) =>
+        inv.id === id
+          ? {
+              ...inv,
+              paymentMethod: method,
+              paid: isPaying,
+              updatedAt: new Date().toISOString(),
+              paidByName: isPaying ? (currentUserName || undefined) : undefined,
+              paidByPhone: isPaying ? (currentUserPhone || undefined) : undefined,
+            }
+          : inv
+      ),
+      error: null,
+    }));
+
     try {
-      set({ loading: true, error: null });
-      const { currentUserName, currentUserPhone } = get();
-      const isPaying = method !== "UNPAID";
       const hasActorCols = await checkActorColumns();
 
       const methodPayload: Record<string, any> = {
@@ -1570,21 +1601,9 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
 
       if (error)
         throw new Error(`Failed to update payment method: ${error.message}`);
-      set((state) => ({
-        invoices: state.invoices.map((inv) =>
-          inv.id === id
-            ? {
-                ...inv,
-                paymentMethod: method,
-                paid: isPaying,
-                updatedAt: new Date().toISOString(),
-                paidByName: isPaying ? (currentUserName || undefined) : undefined,
-                paidByPhone: isPaying ? (currentUserPhone || undefined) : undefined,
-              }
-            : inv
-        ),
-        loading: false,
-      }));
+
+      toast({ title: "Payment method updated" });
+
       try {
         await supabase.from("audit_logs").insert({
           action: "payment_update",
@@ -1595,9 +1614,12 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           changes: { paid: isPaying, paymentMethod: method },
         });
       } catch {}
-      toast({ title: "Payment method updated" });
     } catch (error: any) {
-      set({ loading: false, error: error.message });
+      // Roll back the optimistic change since it didn't actually save.
+      set((state) => ({
+        invoices: state.invoices.map((inv) => (inv.id === id ? previous : inv)),
+        error: error.message,
+      }));
       toast({
         title: "Error updating payment method",
         description: error.message,
