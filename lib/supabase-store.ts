@@ -652,13 +652,20 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
       // Check if we've loaded all invoices
       const allLoaded = invoicesData.length < 50;
 
-      // Append new invoices to existing ones
-      set((state) => ({
-        invoices: [...state.invoices, ...newInvoices],
-        invoicesPage: state.invoicesPage + 1,
-        allInvoicesLoaded: allLoaded,
-        isLoadingMore: false,
-      }));
+      // Append new invoices to existing ones, deduping by id — a search
+      // (see searchInvoicesDb) can merge older invoices into this array
+      // out of band, so pagination catching up to one of those must not
+      // create a duplicate entry.
+      set((state) => {
+        const byId = new Map(state.invoices.map((inv) => [inv.id, inv]));
+        for (const inv of newInvoices) byId.set(inv.id, inv);
+        return {
+          invoices: Array.from(byId.values()),
+          invoicesPage: state.invoicesPage + 1,
+          allInvoicesLoaded: allLoaded,
+          isLoadingMore: false,
+        };
+      });
 
       console.log(`Loaded ${newInvoices.length} more invoices (page ${invoicesPage + 1})`);
     } catch (error: any) {
@@ -780,6 +787,16 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
       (a: Invoice, b: Invoice) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
+
+    // Merge results into the main invoices cache too — otherwise an older
+    // invoice that's only reachable via search (not in the paginated
+    // list) would silently fail to be found by id everywhere else in the
+    // app: editing it, marking it paid, changing its status, etc.
+    set((state) => {
+      const byId = new Map(state.invoices.map((inv) => [inv.id, inv]));
+      for (const inv of invoices) byId.set(inv.id, inv);
+      return { invoices: Array.from(byId.values()) };
+    });
 
     return invoices;
   },
@@ -1495,26 +1512,29 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
 
   updateInvoicePaid: async (id, paid) => {
     const { currentUserName, currentUserPhone } = get();
+    // Older invoices (e.g. only reached via search) may not be in the
+    // paginated local cache — that must not stop the write from happening,
+    // it just means there's nothing to optimistically update/roll back.
     const previous = get().invoices.find((inv) => inv.id === id);
-    if (!previous) return;
 
-    // Optimistic update: reflect the toggle instantly instead of making the
-    // whole UI wait (and disabling unrelated buttons via the shared
-    // `loading` flag) for the round-trip to Supabase to finish.
-    set((state) => ({
-      invoices: state.invoices.map((inv) =>
-        inv.id === id
-          ? {
-              ...inv,
-              paid,
-              updatedAt: new Date().toISOString(),
-              paidByName: paid ? (currentUserName || undefined) : undefined,
-              paidByPhone: paid ? (currentUserPhone || undefined) : undefined,
-            }
-          : inv
-      ),
-      error: null,
-    }));
+    if (previous) {
+      // Optimistic update: reflect the toggle instantly instead of making
+      // the whole UI wait for the round-trip to Supabase to finish.
+      set((state) => ({
+        invoices: state.invoices.map((inv) =>
+          inv.id === id
+            ? {
+                ...inv,
+                paid,
+                updatedAt: new Date().toISOString(),
+                paidByName: paid ? (currentUserName || undefined) : undefined,
+                paidByPhone: paid ? (currentUserPhone || undefined) : undefined,
+              }
+            : inv
+        ),
+        error: null,
+      }));
+    }
 
     try {
       const hasActorCols = await checkActorColumns();
@@ -1548,11 +1568,16 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
       } catch {}
     } catch (error: any) {
       console.error("Error updating paid flag:", error);
-      // Roll back the optimistic change since it didn't actually save.
-      set((state) => ({
-        invoices: state.invoices.map((inv) => (inv.id === id ? previous : inv)),
-        error: error.message,
-      }));
+      // Roll back the optimistic change since it didn't actually save
+      // (nothing to roll back if it was never in the local cache).
+      if (previous) {
+        set((state) => ({
+          invoices: state.invoices.map((inv) => (inv.id === id ? previous : inv)),
+          error: error.message,
+        }));
+      } else {
+        set({ error: error.message });
+      }
       toast({
         title: "Error updating paid flag",
         description: error.message,
@@ -1563,26 +1588,29 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
 
   updateInvoicePaymentMethod: async (id, method) => {
     const { currentUserName, currentUserPhone } = get();
+    // See updateInvoicePaid — older/uncached invoices must still get the
+    // write, just without an optimistic local update to roll back.
     const previous = get().invoices.find((inv) => inv.id === id);
-    if (!previous) return;
     const isPaying = method !== "UNPAID";
 
-    // Optimistic update — see updateInvoicePaid for why.
-    set((state) => ({
-      invoices: state.invoices.map((inv) =>
-        inv.id === id
-          ? {
-              ...inv,
-              paymentMethod: method,
-              paid: isPaying,
-              updatedAt: new Date().toISOString(),
-              paidByName: isPaying ? (currentUserName || undefined) : undefined,
-              paidByPhone: isPaying ? (currentUserPhone || undefined) : undefined,
-            }
-          : inv
-      ),
-      error: null,
-    }));
+    if (previous) {
+      // Optimistic update — see updateInvoicePaid for why.
+      set((state) => ({
+        invoices: state.invoices.map((inv) =>
+          inv.id === id
+            ? {
+                ...inv,
+                paymentMethod: method,
+                paid: isPaying,
+                updatedAt: new Date().toISOString(),
+                paidByName: isPaying ? (currentUserName || undefined) : undefined,
+                paidByPhone: isPaying ? (currentUserPhone || undefined) : undefined,
+              }
+            : inv
+        ),
+        error: null,
+      }));
+    }
 
     try {
       const hasActorCols = await checkActorColumns();
@@ -1615,11 +1643,16 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         });
       } catch {}
     } catch (error: any) {
-      // Roll back the optimistic change since it didn't actually save.
-      set((state) => ({
-        invoices: state.invoices.map((inv) => (inv.id === id ? previous : inv)),
-        error: error.message,
-      }));
+      // Roll back the optimistic change since it didn't actually save
+      // (nothing to roll back if it was never in the local cache).
+      if (previous) {
+        set((state) => ({
+          invoices: state.invoices.map((inv) => (inv.id === id ? previous : inv)),
+          error: error.message,
+        }));
+      } else {
+        set({ error: error.message });
+      }
       toast({
         title: "Error updating payment method",
         description: error.message,
