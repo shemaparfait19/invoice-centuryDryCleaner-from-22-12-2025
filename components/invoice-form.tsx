@@ -32,7 +32,7 @@ import { formatCurrency, formatTime, generateInvoiceId, getLocalDateString, norm
 import { toast } from "@/hooks/use-toast";
 import type { Client, Invoice, InvoiceItem } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
-import { PaymentStatusBadge, RecordPaymentButton } from "@/components/payment-status";
+import { PaymentStatusBadge, RecordPaymentButton, PaymentHistoryRow } from "@/components/payment-status";
 
 const phoneSchema = z
   .string()
@@ -762,6 +762,18 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
                           (editingInvoice.paid ? 0 : editingInvoice.total)
                       )}
                     </p>
+                    {(editingInvoice.payments?.length ?? 0) > 0 && (
+                      <div className="space-y-1 pt-1">
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Payment history — click to edit or remove a split
+                        </p>
+                        <div className="space-y-1">
+                          {editingInvoice.payments!.map((p) => (
+                            <PaymentHistoryRow key={p.id} invoice={editingInvoice} payment={p} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
