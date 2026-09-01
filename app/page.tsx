@@ -290,26 +290,7 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* Database Connection Status */}
-            <Card className="bg-green-50 border-green-200">
-              <CardContent className="pt-6">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-green-700">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span className="text-sm font-medium">
-                      Connected to Supabase - Your data is safely stored in the
-                      cloud
-                    </span>
-                    {pickupNotifications.length > 0 && (
-                      <span className="text-orange-700 bg-orange-200 px-2 py-1 rounded text-xs">
-                        Pickup notifications active
-                      </span>
-                    )}
-                  </div>
-                  <RealTimeStatusIndicator />
-                </div>
-              </CardContent>
-            </Card>
+            <RealTimeStatusIndicator />
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
               <Card>

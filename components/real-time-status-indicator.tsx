@@ -1,60 +1,28 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Badge } from '@/components/ui/badge'
-import { Wifi, WifiOff, RefreshCw } from 'lucide-react'
+import { WifiOff } from 'lucide-react'
 import { useSupabaseStore } from '@/lib/supabase-store'
 
+// Stays silent while everything is working — a healthy connection doesn't
+// need to announce itself. Only speaks up if live updates actually drop.
 export function RealTimeStatusIndicator() {
   const [isConnected, setIsConnected] = useState(true)
-  const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
-  const { realtimeChannel, invoices } = useSupabaseStore()
+  const { realtimeChannel } = useSupabaseStore()
 
   useEffect(() => {
-    // Monitor connection status
-    const checkConnection = () => {
-      setIsConnected(!!realtimeChannel)
-    }
-
+    const checkConnection = () => setIsConnected(!!realtimeChannel)
     checkConnection()
     const interval = setInterval(checkConnection, 5000)
-
     return () => clearInterval(interval)
   }, [realtimeChannel])
 
-  useEffect(() => {
-    // Update last update time when invoices change
-    setLastUpdate(new Date())
-  }, [invoices])
+  if (isConnected) return null
 
   return (
-    <div className="flex items-center gap-2 text-xs">
-      <Badge 
-        variant="outline" 
-        className={`flex items-center gap-1 ${
-          isConnected ? 'text-green-700 border-green-300' : 'text-red-700 border-red-300'
-        }`}
-      >
-        {isConnected ? (
-          <>
-            <Wifi className="h-3 w-3" />
-            Live Updates
-          </>
-        ) : (
-          <>
-            <WifiOff className="h-3 w-3" />
-            Offline
-          </>
-        )}
-      </Badge>
-      
-      <span className="text-muted-foreground">
-        Last sync: {lastUpdate.toLocaleTimeString()}
-      </span>
-      
-      <RefreshCw className="h-3 w-3 text-muted-foreground animate-spin" style={{
-        animationDuration: isConnected ? '2s' : '0s'
-      }} />
+    <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1.5 w-fit">
+      <WifiOff className="h-3.5 w-3.5" />
+      Reconnecting…
     </div>
   )
 }
