@@ -79,6 +79,29 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
   const [activeItemSuggestion, setActiveItemSuggestion] = useState<number | null>(null);
   const clientInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Payment lines for a brand-new invoice — lets the client split between
+  // methods (part cash, part MoMo) and/or pay only part of the total up
+  // front, right at creation. Only used when creating (editingId is null);
+  // editing an existing invoice keeps recording new payments in the
+  // invoice detail view's Record Payment flow, so it isn't re-triggered
+  // on every unrelated edit-and-save.
+  const [paymentLines, setPaymentLines] = useState<
+    { id: string; amount: string; method: string }[]
+  >([{ id: "line-1", amount: "", method: "CASH" }]);
+
+  const addPaymentLine = () => {
+    const used = new Set(paymentLines.map((l) => l.method));
+    const nextMethod = ["CASH", "MOMO", "BANK", "CARD"].find((m) => !used.has(m)) || "CASH";
+    setPaymentLines((prev) => [
+      ...prev,
+      { id: `line-${prev.length}-${Date.now()}`, amount: "", method: nextMethod },
+    ]);
+  };
+  const removePaymentLine = (id: string) =>
+    setPaymentLines((prev) => (prev.length > 1 ? prev.filter((l) => l.id !== id) : prev));
+  const updatePaymentLine = (id: string, patch: Partial<{ amount: string; method: string }>) =>
+    setPaymentLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+
   // Drop-off details (hangers/covers) — asked once per invoice via a
   // required dialog so staff never have to rely on memory at pickup.
   const [dropoffOpen, setDropoffOpen] = useState(false);
@@ -187,6 +210,22 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
     return items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
   };
 
+  const totalPaymentEntered = paymentLines.reduce(
+    (sum, l) => sum + (parseFloat(l.amount) || 0),
+    0
+  );
+
+  // Keep the schema's required paymentMethod field in sync with the
+  // payment lines so validation passes — "UNPAID" if nothing's entered
+  // yet, the single method if only one is used, "SPLIT" if several.
+  useEffect(() => {
+    if (editingId) return; // editing keeps its own Select-bound value
+    const active = paymentLines.filter((l) => (parseFloat(l.amount) || 0) > 0);
+    const derived =
+      active.length === 0 ? "UNPAID" : active.length === 1 ? active[0].method : "SPLIT";
+    form.setValue("paymentMethod", derived);
+  }, [paymentLines, editingId]);
+
   const onSubmit = async (data: InvoiceFormData) => {
     try {
       console.log("Form submission started with data:", data);
@@ -209,15 +248,18 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
 
       // Same rule as everywhere else in the app: an invoice can't be
       // marked completed unless the balance is fully settled. On create,
-      // a non-UNPAID method pays the total in full immediately; on edit,
-      // the invoice's recorded balance (from its payments so far) is the
-      // source of truth since changing payment method here doesn't by
-      // itself record a new payment.
+      // that means the entered payment lines cover the full total; on
+      // edit, the invoice's recorded balance (from its payments so far)
+      // is the source of truth since changing payment method here
+      // doesn't by itself record a new payment.
+      const totalDue = calculateTotal();
       const effectivePaid = editingId
         ? editingInvoice
           ? (editingInvoice.balanceDue ?? (editingInvoice.paid ? 0 : editingInvoice.total)) <= 0
           : false
-        : data.paymentMethod !== "UNPAID";
+        : totalDue > 0
+        ? totalPaymentEntered >= totalDue - 0.01
+        : true;
       if (data.status === "completed" && !effectivePaid) {
         toast({
           title: "Payment not confirmed",
@@ -354,10 +396,14 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
         toast({ title: "Invoice updated successfully!" });
       } else {
         console.log("Creating new invoice...");
+        const initialPayments = paymentLines
+          .map((l) => ({ amount: parseFloat(l.amount) || 0, method: l.method }))
+          .filter((l) => l.amount > 0);
         await addInvoice({
           ...invoiceData,
           // Pass optional createdAt to override DB default when user customizes
           createdAt: createdAtIso,
+          initialPayments,
         } as any);
         toast({ title: "Invoice created successfully!" });
       }
@@ -696,37 +742,115 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
               )}
             </div>
 
-            <div>
-              <Label htmlFor="paymentMethod">Payment Method</Label>
-              <Select
-                value={form.watch("paymentMethod")}
-                onValueChange={(value) => form.setValue("paymentMethod", value)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select payment method" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="UNPAID">Unpaid / On Account</SelectItem>
-                  <SelectItem value="CASH">Cash</SelectItem>
-                  <SelectItem value="MOMO">Mobile Money</SelectItem>
-                  <SelectItem value="BANK">Bank Transfer</SelectItem>
-                  <SelectItem value="CARD">Card Payment</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* Auto-suggest paid flag based on payment method */}
-              {form.watch("paymentMethod") === "UNPAID" && (
-                <p className="text-xs text-yellow-700 mt-1">
-                  This invoice will be marked as unpaid.
+            {editingId ? (
+              <div>
+                <Label htmlFor="paymentMethod">Payment Method</Label>
+                <Select
+                  value={form.watch("paymentMethod")}
+                  onValueChange={(value) => form.setValue("paymentMethod", value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select payment method" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="UNPAID">Unpaid / On Account</SelectItem>
+                    <SelectItem value="CASH">Cash</SelectItem>
+                    <SelectItem value="MOMO">Mobile Money</SelectItem>
+                    <SelectItem value="BANK">Bank Transfer</SelectItem>
+                    <SelectItem value="CARD">Card Payment</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  To record a new payment on this invoice, use the "Record
+                  Payment" button in its detail view instead of editing here.
                 </p>
-              )}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Payment</Label>
+                <div className="space-y-2">
+                  {paymentLines.map((line) => (
+                    <div key={line.id} className="flex gap-2 items-start">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Amount"
+                        value={line.amount}
+                        onChange={(e) => updatePaymentLine(line.id, { amount: e.target.value })}
+                        className="flex-1"
+                      />
+                      <Select
+                        value={line.method}
+                        onValueChange={(value) => updatePaymentLine(line.id, { method: value })}
+                      >
+                        <SelectTrigger className="w-36">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="CASH">Cash</SelectItem>
+                          <SelectItem value="MOMO">Mobile Money</SelectItem>
+                          <SelectItem value="BANK">Bank Transfer</SelectItem>
+                          <SelectItem value="CARD">Card Payment</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {paymentLines.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removePaymentLine(line.id)}
+                          className="text-red-600 flex-shrink-0"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addPaymentLine}
+                  className="flex items-center gap-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  Split Payment
+                </Button>
 
-              {form.formState.errors.paymentMethod && (
-                <p className="text-sm text-red-500">
-                  {form.formState.errors.paymentMethod.message}
-                </p>
-              )}
-            </div>
+                <div className="text-xs pt-1 space-y-0.5">
+                  <p className="text-muted-foreground">
+                    Leave the amount blank (or 0) for a client paying nothing
+                    yet — the invoice will be Unpaid / On Account. Use "Split
+                    Payment" to add another line for a different method (e.g.
+                    part cash, part Mobile Money) or to pay only part of the
+                    total now.
+                  </p>
+                  {calculateTotal() > 0 && (
+                    <p
+                      className={
+                        totalPaymentEntered >= calculateTotal() - 0.01
+                          ? "text-green-700 font-medium"
+                          : totalPaymentEntered > 0
+                          ? "text-blue-700 font-medium"
+                          : "text-yellow-700 font-medium"
+                      }
+                    >
+                      Total: {formatCurrency(calculateTotal())} · Entered:{" "}
+                      {formatCurrency(totalPaymentEntered)} · Remaining:{" "}
+                      {formatCurrency(Math.max(0, calculateTotal() - totalPaymentEntered))}
+                    </p>
+                  )}
+                </div>
+
+                {form.formState.errors.paymentMethod && (
+                  <p className="text-sm text-red-500">
+                    {form.formState.errors.paymentMethod.message}
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>

@@ -59,7 +59,14 @@ interface SupabaseStore {
   fetchRecentCompleted: (filter: "completed" | "paid", limit: number) => Promise<Invoice[]>;
   fetchInvoicesForDateRange: (fromIso: string, toIso: string) => Promise<Invoice[]>;
   addInvoice: (
-    invoice: Omit<Invoice, "updatedAt"> & { createdAt?: string }
+    invoice: Omit<Invoice, "updatedAt"> & {
+      createdAt?: string;
+      // Payment(s) taken at the moment of creation — lets a client split
+      // between methods (part cash, part MoMo) or pay only part of the
+      // total up front, right from the invoice form. Falls back to a
+      // single full payment for `paymentMethod` if omitted.
+      initialPayments?: { amount: number; method: string }[];
+    }
   ) => Promise<void>;
   updateInvoice: (id: string, invoice: Partial<Invoice>) => Promise<void>;
   deleteInvoice: (id: string) => Promise<void>;
@@ -1318,6 +1325,23 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         created_by_phone: get().currentUserPhone || null,
       });
 
+      // Payment(s) recorded at creation — either explicit split/partial
+      // payments from the form, or (if none given) the old single-method
+      // "paid in full" behavior for paymentMethod !== UNPAID.
+      const initialPayments = (invoiceData as any).initialPayments as
+        | { amount: number; method: string }[]
+        | undefined;
+      const totalPaidAtCreation =
+        initialPayments && initialPayments.length > 0
+          ? initialPayments.reduce((sum, p) => sum + p.amount, 0)
+          : invoiceData.paymentMethod !== "UNPAID"
+          ? invoiceData.total
+          : 0;
+      const isFullyPaidAtCreation =
+        invoiceData.total > 0
+          ? totalPaidAtCreation >= invoiceData.total - 0.01
+          : totalPaidAtCreation > 0;
+
       // Insert invoice. Invoice ids are date+random, so a same-day
       // collision is very unlikely but not impossible — if Postgres
       // rejects it as a duplicate key, regenerate a fresh id and retry
@@ -1331,7 +1355,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             client_id: invoiceData.client.id,
             total: invoiceData.total,
             payment_method: invoiceData.paymentMethod,
-            paid: invoiceData.paymentMethod !== "UNPAID",
+            paid: isFullyPaidAtCreation,
             status: invoiceData.status,
             pickup_date: invoiceData.pickupDate || null,
             pickup_time: invoiceData.pickupTime || null,
@@ -1403,10 +1427,28 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         console.log("Invoice items inserted successfully");
       }
 
-      // A non-UNPAID method at creation means the client paid in full up
-      // front — record that as the invoice's first payment so amountPaid/
-      // balanceDue are correct from the start, not just the `paid` flag.
-      if (invoiceData.paymentMethod !== "UNPAID" && invoiceData.total > 0) {
+      // Record whatever was actually paid at creation — split across
+      // methods and/or only partial — so amountPaid/balanceDue are right
+      // from the start, not just the `paid` flag.
+      if (initialPayments && initialPayments.length > 0) {
+        const rows = initialPayments
+          .filter((p) => p.amount > 0)
+          .map((p) => ({
+            invoice_id: invoiceData.id,
+            amount: p.amount,
+            method: p.method,
+            paid_by_name: get().currentUserName || null,
+            paid_by_phone: get().currentUserPhone || null,
+          }));
+        if (rows.length > 0) {
+          const { error: paymentError } = await supabase.from("payments").insert(rows);
+          if (paymentError) {
+            console.warn("Failed to record initial payment(s):", paymentError);
+          }
+        }
+      } else if (invoiceData.paymentMethod !== "UNPAID" && invoiceData.total > 0) {
+        // No explicit split given — fall back to "paid in full" for the
+        // chosen method, same as before this feature existed.
         const { error: paymentError } = await supabase.from("payments").insert({
           invoice_id: invoiceData.id,
           amount: invoiceData.total,
