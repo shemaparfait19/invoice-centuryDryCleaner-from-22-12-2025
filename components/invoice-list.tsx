@@ -55,6 +55,7 @@ import { InvoicePrint } from "@/components/invoice-print";
 import { toast } from "@/hooks/use-toast";
 import type { Invoice } from "@/lib/types";
 import { InvoiceStatusManager } from "@/components/invoice-status-manager";
+import { PaymentStatusBadge, RecordPaymentButton } from "@/components/payment-status";
 
 interface InvoiceListProps {
   onEdit: (invoiceId: string) => void;
@@ -83,8 +84,6 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
     invoices,
     deleteInvoice,
     loading,
-    updateInvoicePaid,
-    updateInvoicePaymentMethod,
     updateInvoice,
     loadMoreInvoices,
     allInvoicesLoaded,
@@ -492,46 +491,9 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-2">
-                  <Select
-                    value={invoice.paymentMethod}
-                    onValueChange={(val) =>
-                      updateInvoicePaymentMethod(invoice.id, val)
-                    }
-                  >
-                    <SelectTrigger className="w-32 h-8 text-xs">
-                      <SelectValue placeholder="Method" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="UNPAID">Unpaid</SelectItem>
-                      <SelectItem value="CASH">Cash</SelectItem>
-                      <SelectItem value="MOMO">Mobile Money</SelectItem>
-                      <SelectItem value="BANK">Bank Transfer</SelectItem>
-                      <SelectItem value="CARD">Card Payment</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  <button
-                    className={`text-xs px-2 py-1 rounded border ${
-                      invoice.paid
-                        ? "border-green-300 text-green-700"
-                        : (invoice.amountPaid ?? 0) > 0
-                        ? "border-blue-300 text-blue-700"
-                        : "border-yellow-300 text-yellow-700"
-                    }`}
-                    onClick={() => updateInvoicePaid(invoice.id, !invoice.paid)}
-                    title={
-                      !invoice.paid && (invoice.amountPaid ?? 0) > 0
-                        ? `Partially paid — ${formatCurrency(invoice.balanceDue ?? 0)} still due. Use the invoice's Payment section to record a partial payment.`
-                        : undefined
-                    }
-                  >
-                    {invoice.paid
-                      ? "Paid"
-                      : (invoice.amountPaid ?? 0) > 0
-                      ? "Partial"
-                      : "Unpaid"}
-                  </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <PaymentStatusBadge invoice={invoice} className="text-xs" />
+                  <RecordPaymentButton invoice={invoice} size="sm" />
                 </div>
 
                 <div className="pt-2 border-t space-y-2">
@@ -684,45 +646,8 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                           </td>
                           <td className="p-4">
                             <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                              <Select
-                                value={invoice.paymentMethod}
-                                onValueChange={(val) =>
-                                  updateInvoicePaymentMethod(invoice.id, val)
-                                }
-                              >
-                                <SelectTrigger className="w-36 h-8">
-                                  <SelectValue placeholder="Method" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="UNPAID">
-                                    Unpaid / On Account
-                                  </SelectItem>
-                                  <SelectItem value="CASH">Cash</SelectItem>
-                                  <SelectItem value="MOMO">Mobile Money</SelectItem>
-                                  <SelectItem value="BANK">
-                                    Bank Transfer
-                                  </SelectItem>
-                                  <SelectItem value="CARD">Card Payment</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <button
-                                className={`text-xs px-2 py-1 rounded border ${
-                                  invoice.paid
-                                    ? "border-green-300 text-green-700"
-                                    : (invoice.amountPaid ?? 0) > 0
-                                    ? "border-blue-300 text-blue-700"
-                                    : "border-yellow-300 text-yellow-700"
-                                }`}
-                                onClick={() =>
-                                  updateInvoicePaid(invoice.id, !invoice.paid)
-                                }
-                              >
-                                {invoice.paid
-                                  ? "Paid"
-                                  : (invoice.amountPaid ?? 0) > 0
-                                  ? "Partial"
-                                  : "Unpaid"}
-                              </button>
+                              <PaymentStatusBadge invoice={invoice} />
+                              <RecordPaymentButton invoice={invoice} size="sm" />
                             </div>
                           </td>
                           <td className="p-4">

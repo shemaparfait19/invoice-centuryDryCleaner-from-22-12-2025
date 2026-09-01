@@ -4,8 +4,6 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -23,33 +21,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  CheckCircle,
-  Clock,
-  XCircle,
-  AlertTriangle,
-  RefreshCw,
-  Wallet,
-} from "lucide-react";
+import { CheckCircle, Clock, XCircle, AlertTriangle, RefreshCw } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency, formatTime } from "@/lib/utils";
+import { PaymentStatusBadge, RecordPaymentButton, PAYMENT_METHOD_LABELS } from "@/components/payment-status";
 import type { Invoice } from "@/lib/types";
-
-const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  UNPAID: "Unpaid / On Account",
-  CASH: "Cash",
-  MOMO: "Mobile Money",
-  BANK: "Bank Transfer",
-  CARD: "Card Payment",
-};
 
 interface InvoiceStatusManagerProps {
   invoice: Invoice;
@@ -66,41 +42,11 @@ export function InvoiceStatusManager({
   const [newStatus, setNewStatus] = useState<
     "pending" | "completed" | "cancelled" | null
   >(null);
-  const [isRecordingPayment, setIsRecordingPayment] = useState(false);
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("CASH");
-  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
-  const {
-    updateInvoiceStatus,
-    updateInvoicePaid,
-    addPayment,
-    loading,
-  } = useSupabaseStore();
+  const { updateInvoiceStatus, updateInvoicePaid, loading } = useSupabaseStore();
 
   const balanceDue = invoice.balanceDue ?? (invoice.paid ? 0 : invoice.total);
   const amountPaid = invoice.amountPaid ?? (invoice.paid ? invoice.total : 0);
   const payments = invoice.payments ?? [];
-
-  const openRecordPayment = () => {
-    setPaymentAmount(balanceDue > 0 ? String(balanceDue) : "");
-    setPaymentMethod(invoice.paymentMethod !== "UNPAID" ? invoice.paymentMethod : "CASH");
-    setIsRecordingPayment(true);
-  };
-
-  const submitPayment = async () => {
-    const amount = parseFloat(paymentAmount);
-    if (!(amount > 0)) return;
-    setIsSubmittingPayment(true);
-    try {
-      await addPayment(invoice.id, amount, paymentMethod);
-      setIsRecordingPayment(false);
-      setPaymentAmount("");
-    } catch {
-      // Store already surfaced a toast explaining why.
-    } finally {
-      setIsSubmittingPayment(false);
-    }
-  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -327,17 +273,7 @@ export function InvoiceStatusManager({
         <div className="space-y-3 pt-2 border-t">
           <div className="flex items-center justify-between">
             <h4 className="font-medium">Payment:</h4>
-            <Badge
-              className={
-                balanceDue <= 0
-                  ? "bg-green-100 text-green-800"
-                  : amountPaid > 0
-                  ? "bg-blue-100 text-blue-800"
-                  : "bg-yellow-100 text-yellow-800"
-              }
-            >
-              {balanceDue <= 0 ? "PAID" : amountPaid > 0 ? "PARTIALLY PAID" : "UNPAID"}
-            </Badge>
+            <PaymentStatusBadge invoice={invoice} />
           </div>
 
           <div className="grid grid-cols-3 gap-2 text-sm">
@@ -358,17 +294,7 @@ export function InvoiceStatusManager({
           </div>
 
           <div className="flex gap-2 flex-wrap items-center">
-            {balanceDue > 0 && (
-              <Button
-                size="sm"
-                onClick={openRecordPayment}
-                disabled={loading}
-                className="flex items-center gap-2"
-              >
-                <Wallet className="h-4 w-4" />
-                Record Payment
-              </Button>
-            )}
+            <RecordPaymentButton invoice={invoice} size="sm" variant="default" />
             {amountPaid > 0 && (
               <Button
                 variant="outline"
@@ -406,59 +332,6 @@ export function InvoiceStatusManager({
             </div>
           )}
         </div>
-
-        <Dialog open={isRecordingPayment} onOpenChange={setIsRecordingPayment}>
-          <DialogContent className="sm:max-w-sm">
-            <DialogHeader>
-              <DialogTitle>Record Payment</DialogTitle>
-              <DialogDescription>
-                Balance due: {formatCurrency(balanceDue)}. Enter less than the full
-                amount to record a partial payment — the rest stays owed.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3">
-              <div>
-                <Label htmlFor="payment-amount">Amount</Label>
-                <Input
-                  id="payment-amount"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={paymentAmount}
-                  onChange={(e) => setPaymentAmount(e.target.value)}
-                  autoFocus
-                />
-              </div>
-              <div>
-                <Label htmlFor="payment-method">Method</Label>
-                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                  <SelectTrigger id="payment-method">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="CASH">Cash</SelectItem>
-                    <SelectItem value="MOMO">Mobile Money</SelectItem>
-                    <SelectItem value="BANK">Bank Transfer</SelectItem>
-                    <SelectItem value="CARD">Card Payment</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button
-                onClick={submitPayment}
-                disabled={
-                  isSubmittingPayment ||
-                  !(parseFloat(paymentAmount) > 0) ||
-                  parseFloat(paymentAmount) > balanceDue + 1
-                }
-                className="w-full sm:w-auto"
-              >
-                {isSubmittingPayment ? "Recording..." : "Record Payment"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
         {invoice.pickupDate && invoice.pickupTime && (
           <div className="pt-2 border-t">

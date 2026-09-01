@@ -17,6 +17,7 @@ import { formatCurrency } from "@/lib/utils";
 import { generatePDF, sharePDF, shareViaWhatsApp } from "@/lib/pdf-utils";
 import { InvoicePrint } from "@/components/invoice-print";
 import { InvoiceStatusManager } from "@/components/invoice-status-manager";
+import { PaymentStatusBadge, RecordPaymentButton } from "@/components/payment-status";
 import { toast } from "@/hooks/use-toast";
 import type { Invoice } from "@/lib/types";
 
@@ -114,19 +115,7 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
     groups[label].push(inv);
   }
 
-  const getPaymentBadge = (invoice: Invoice) => {
-    if (!invoice.paid)
-      return <Badge variant="outline" className="border-yellow-300 text-yellow-700">Unpaid</Badge>;
-    const labels: Record<string, string> = {
-      CASH: "Cash", MOMO: "Mobile Money", BANK: "Bank Transfer",
-      CARD: "Card", UNPAID: "Unpaid",
-    };
-    return (
-      <Badge variant="outline" className="border-green-300 text-green-700">
-        {labels[invoice.paymentMethod] ?? invoice.paymentMethod}
-      </Badge>
-    );
-  };
+  const getPaymentBadge = (invoice: Invoice) => <PaymentStatusBadge invoice={invoice} />;
 
   const getActor = (invoice: Invoice) => {
     if (type === "completed") return invoice.completedByName ?? invoice.completedByPhone ?? null;
@@ -261,7 +250,12 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
                                   {invoice.status}
                                 </Badge>
                               </td>
-                              <td className="p-3">{getPaymentBadge(invoice)}</td>
+                              <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center gap-2">
+                                  {getPaymentBadge(invoice)}
+                                  <RecordPaymentButton invoice={invoice} size="sm" />
+                                </div>
+                              </td>
                               <td className="p-3" onClick={(e) => e.stopPropagation()}>
                                 <div className="flex gap-1">
                                   <Button variant="ghost" size="sm" onClick={() => setViewInvoice(invoice)}>
@@ -332,6 +326,7 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
                         </div>
                       )}
                       <InvoiceStatusManager invoice={invoice} compact={true} showDetails={false} />
+                      <RecordPaymentButton invoice={invoice} size="sm" variant="outline" />
                       <div className="flex gap-2 pt-1 border-t">
                         <Button variant="outline" size="sm" className="flex-1" onClick={() => setViewInvoice(invoice)}>
                           <Eye className="h-4 w-4 mr-1" /> View
