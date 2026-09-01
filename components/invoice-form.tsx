@@ -32,6 +32,7 @@ import { formatCurrency, formatTime, generateInvoiceId, getLocalDateString, norm
 import { toast } from "@/hooks/use-toast";
 import type { Client, Invoice, InvoiceItem } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
+import { PaymentStatusBadge, RecordPaymentButton } from "@/components/payment-status";
 
 const phoneSchema = z
   .string()
@@ -744,27 +745,25 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
             </div>
 
             {editingId ? (
-              <div>
-                <Label htmlFor="paymentMethod">Payment Method</Label>
-                <Select
-                  value={form.watch("paymentMethod")}
-                  onValueChange={(value) => form.setValue("paymentMethod", value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select payment method" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="UNPAID">Unpaid / On Account</SelectItem>
-                    <SelectItem value="CASH">Cash</SelectItem>
-                    <SelectItem value="MOMO">Mobile Money</SelectItem>
-                    <SelectItem value="BANK">Bank Transfer</SelectItem>
-                    <SelectItem value="CARD">Card Payment</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground mt-1">
-                  To record a new payment on this invoice, use the "Record
-                  Payment" button in its detail view instead of editing here.
-                </p>
+              <div className="space-y-2">
+                <Label>Payment</Label>
+                {editingInvoice && (
+                  <>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <PaymentStatusBadge invoice={editingInvoice} />
+                      <RecordPaymentButton invoice={editingInvoice} size="sm" />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Total: {formatCurrency(editingInvoice.total)} · Paid:{" "}
+                      {formatCurrency(editingInvoice.amountPaid ?? (editingInvoice.paid ? editingInvoice.total : 0))}{" "}
+                      · Balance:{" "}
+                      {formatCurrency(
+                        editingInvoice.balanceDue ??
+                          (editingInvoice.paid ? 0 : editingInvoice.total)
+                      )}
+                    </p>
+                  </>
+                )}
               </div>
             ) : (
               <div className="space-y-2">
