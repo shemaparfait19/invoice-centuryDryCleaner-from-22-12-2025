@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Bell, Clock, User, X, Phone, CheckCircle, AlertTriangle } from 'lucide-react'
 import { useSupabaseStore } from '@/lib/supabase-store'
-import { formatCurrency, formatTime } from '@/lib/utils'
+import { formatCurrency, formatTime, getLocalDateString } from '@/lib/utils'
 import type { Invoice } from '@/lib/types'
 
 export function PickupNotifications() {
@@ -25,7 +25,7 @@ export function PickupNotifications() {
   // Get pickup notifications - trigger when exact time matches
   const getPickupNotifications = () => {
     const now = new Date()
-    const currentDate = now.toISOString().split('T')[0] // YYYY-MM-DD format
+    const currentDate = getLocalDateString(now) // YYYY-MM-DD, local calendar day
     const currentHour = now.getHours()
     const currentMinute = now.getMinutes()
     const currentTimeString = `${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`

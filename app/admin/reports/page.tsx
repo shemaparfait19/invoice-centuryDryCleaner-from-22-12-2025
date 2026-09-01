@@ -12,7 +12,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, getLocalDateString } from "@/lib/utils";
+
+// Parses a "YYYY-MM-DD" string as local midnight — new Date("YYYY-MM-DD")
+// parses it as UTC midnight instead, which is a day off from what the date
+// picker's input actually means in any timezone ahead of UTC.
+function parseLocalDate(ymd: string): Date {
+  const [y, m, d] = ymd.split("-").map((n) => Number(n));
+  return new Date(y, (m || 1) - 1, d || 1);
+}
 
 export default function AdminReports() {
   const [range, setRange] = useState<"today" | "7d" | "weekly" | "30d" | "custom" | "all">("7d");
@@ -21,10 +29,10 @@ export default function AdminReports() {
   const [clients, setClients] = useState<any[]>([]);
   const [items, setItems] = useState<any[]>([]);
   const [customStartDate, setCustomStartDate] = useState(
-    new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().split("T")[0]
+    getLocalDateString(new Date(new Date().setDate(new Date().getDate() - 7)))
   );
   const [customEndDate, setCustomEndDate] = useState(
-    new Date().toISOString().split("T")[0]
+    getLocalDateString()
   );
 
   useEffect(() => {
@@ -51,8 +59,8 @@ export default function AdminReports() {
       if (range === "30d")
         from = new Date(now.getTime() - 30 * 86400000).toISOString();
       if (range === "custom") {
-        from = new Date(customStartDate).toISOString();
-        const endDate = new Date(customEndDate);
+        from = parseLocalDate(customStartDate).toISOString();
+        const endDate = parseLocalDate(customEndDate);
         endDate.setHours(23, 59, 59, 999);
         to = endDate.toISOString();
       }
@@ -199,7 +207,7 @@ export default function AdminReports() {
     // Write file
     const dateStr = range === "custom" 
       ? `${customStartDate}_to_${customEndDate}`
-      : new Date().toISOString().split("T")[0];
+      : getLocalDateString();
     const filename = `century-admin-report-${range}-${dateStr}.xlsx`;
     XLSX.writeFile(wb, filename);
   };

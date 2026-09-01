@@ -27,7 +27,7 @@ import {
 import { Plus, Trash2 } from "lucide-react";
 import { SERVICES } from "@/lib/services";
 import { useSupabaseStore } from "@/lib/supabase-store";
-import { formatCurrency, formatTime, generateInvoiceId } from "@/lib/utils";
+import { formatCurrency, formatTime, generateInvoiceId, getLocalDateString } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import type { Client, Invoice, InvoiceItem } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
@@ -118,7 +118,7 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
       clientAddress: "",
       items: [{ description: "", quantity: 1, unitPrice: 0 }],
       paymentMethod: "",
-      createdDate: new Date().toISOString().slice(0, 10),
+      createdDate: getLocalDateString(),
       pickupDate: "",
       pickupTime: "",
       notes: "",
@@ -140,9 +140,9 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
         clientAddress: editingInvoice.client.address || "",
         items: editingInvoice.items,
         paymentMethod: editingInvoice.paymentMethod,
-        createdDate: (
-          editingInvoice.createdAt || new Date().toISOString()
-        ).slice(0, 10),
+        createdDate: getLocalDateString(
+          editingInvoice.createdAt ? new Date(editingInvoice.createdAt) : new Date()
+        ),
         pickupDate: editingInvoice.pickupDate || "",
         pickupTime: editingInvoice.pickupTime || "",
         notes: editingInvoice.notes || "",

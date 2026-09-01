@@ -5,6 +5,7 @@ import { supabase } from "./supabase";
 import type { Client, Invoice, InvoiceItem, UserAccount } from "./types";
 import { toast } from "@/hooks/use-toast";
 import { RealtimeChannel } from "@supabase/supabase-js";
+import { getLocalDateString } from "./utils";
 
 interface SupabaseStore {
   invoices: Invoice[];
@@ -260,17 +261,35 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
 
   loadClients: async () => {
     try {
-      const { data, error } = await supabase
-        .from("clients")
-        .select("*")
-        .order("created_at", { ascending: false });
+      // Supabase/PostgREST caps a single request at 1000 rows by default —
+      // page through in batches so a growing client list never silently
+      // loses the older half of it.
+      const pageSize = 1000;
+      const allRows: any[] = [];
+      let page = 0;
 
-      if (error) {
-        console.error("Error loading clients:", error);
-        throw new Error(`Failed to load clients: ${error.message}`);
+      for (;;) {
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+
+        const { data, error } = await supabase
+          .from("clients")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .range(from, to);
+
+        if (error) {
+          console.error("Error loading clients:", error);
+          throw new Error(`Failed to load clients: ${error.message}`);
+        }
+        if (!data || data.length === 0) break;
+
+        allRows.push(...data);
+        if (data.length < pageSize) break;
+        page++;
       }
 
-      const clients: Client[] = (data || []).map((client) => ({
+      const clients: Client[] = allRows.map((client) => ({
         id: client.id,
         name: client.name,
         phone: client.phone,
@@ -1346,7 +1365,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
 
   getPickupNotifications: () => {
     const now = new Date();
-    const currentDate = now.toISOString().split("T")[0]; // YYYY-MM-DD format
+    const currentDate = getLocalDateString(now); // YYYY-MM-DD, local calendar day
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
     const currentTimeString = `${currentHour

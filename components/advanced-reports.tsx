@@ -28,29 +28,37 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, getLocalDateString } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import type { Invoice } from "@/lib/types";
+
+// "YYYY-MM" for a Date, in local time (see getLocalDateString for why not
+// toISOString-based).
+function getLocalMonthString(date: Date): string {
+  const y = date.getFullYear();
+  const m = (date.getMonth() + 1).toString().padStart(2, "0");
+  return `${y}-${m}`;
+}
 
 export function AdvancedReports() {
   const [selectedPeriod, setSelectedPeriod] = useState("daily");
   const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split("T")[0]
+    getLocalDateString()
   );
   const [selectedWeekStart, setSelectedWeekStart] = useState(
-    getWeekStart(new Date()).toISOString().split("T")[0]
+    getLocalDateString(getWeekStart(new Date()))
   );
   const [selectedMonth, setSelectedMonth] = useState(
-    new Date().toISOString().slice(0, 7)
+    getLocalMonthString(new Date())
   );
   const [selectedYear, setSelectedYear] = useState(
     new Date().getFullYear().toString()
   );
   const [customStartDate, setCustomStartDate] = useState(
-    new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().split("T")[0]
+    getLocalDateString(new Date(new Date().setDate(new Date().getDate() - 7)))
   );
   const [customEndDate, setCustomEndDate] = useState(
-    new Date().toISOString().split("T")[0]
+    getLocalDateString()
   );
 
   // Helper function to get the start of the week (Monday)
@@ -72,46 +80,52 @@ export function AdvancedReports() {
   const [reportInvoices, setReportInvoices] = useState<Invoice[]>([]);
   const [reportLoading, setReportLoading] = useState(false);
 
-  // Compute ISO date range from current filter state
+  // Compute ISO date range from current filter state.
+  // Invoices are timestamped using the browser's local time (see
+  // buildCreatedAt in invoice-form.tsx), so "today"/"this week" etc. must
+  // be bounded in local time too — building these with Date.UTC instead
+  // shifts the whole window by the local UTC offset, which in a timezone
+  // ahead of UTC (e.g. Kigali, UTC+2) miscounts invoices from the last
+  // couple of hours of "yesterday" as "today", and vice versa.
   const computeFromTo = () => {
-    const parseYmdUtc = (ymd: string, endOfDay: boolean) => {
+    const parseYmdLocal = (ymd: string, endOfDay: boolean) => {
       const [y, m, d] = ymd.split("-").map((n) => Number(n));
       if (!y || !m || !d) return new Date(0);
       return new Date(
-        Date.UTC(y, m - 1, d, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0)
+        y, m - 1, d, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0
       );
     };
-    const parseYmUtcStart = (ym: string) => {
+    const parseYmLocalStart = (ym: string) => {
       const [y, m] = ym.split("-").map((n) => Number(n));
       if (!y || !m) return new Date(0);
-      return new Date(Date.UTC(y, m - 1, 1, 0, 0, 0, 0));
+      return new Date(y, m - 1, 1, 0, 0, 0, 0);
     };
 
     const now = new Date();
     if (selectedPeriod === "daily") {
-      return { fromIso: parseYmdUtc(selectedDate, false).toISOString(), toIso: parseYmdUtc(selectedDate, true).toISOString() };
+      return { fromIso: parseYmdLocal(selectedDate, false).toISOString(), toIso: parseYmdLocal(selectedDate, true).toISOString() };
     }
     if (selectedPeriod === "weekly") {
-      const from = parseYmdUtc(selectedWeekStart, false);
+      const from = parseYmdLocal(selectedWeekStart, false);
       const to = new Date(from);
-      to.setUTCDate(to.getUTCDate() + 6);
-      to.setUTCHours(23, 59, 59, 999);
+      to.setDate(to.getDate() + 6);
+      to.setHours(23, 59, 59, 999);
       return { fromIso: from.toISOString(), toIso: to.toISOString() };
     }
     if (selectedPeriod === "monthly") {
-      const first = parseYmUtcStart(selectedMonth);
-      const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+      const first = parseYmLocalStart(selectedMonth);
+      const last = new Date(first.getFullYear(), first.getMonth() + 1, 0, 23, 59, 59, 999);
       return { fromIso: first.toISOString(), toIso: last.toISOString() };
     }
     if (selectedPeriod === "yearly") {
       const y = Number(selectedYear);
       return {
-        fromIso: new Date(Date.UTC(y, 0, 1, 0, 0, 0, 0)).toISOString(),
-        toIso: new Date(Date.UTC(y, 11, 31, 23, 59, 59, 999)).toISOString(),
+        fromIso: new Date(y, 0, 1, 0, 0, 0, 0).toISOString(),
+        toIso: new Date(y, 11, 31, 23, 59, 59, 999).toISOString(),
       };
     }
     if (selectedPeriod === "custom") {
-      return { fromIso: parseYmdUtc(customStartDate, false).toISOString(), toIso: parseYmdUtc(customEndDate, true).toISOString() };
+      return { fromIso: parseYmdLocal(customStartDate, false).toISOString(), toIso: parseYmdLocal(customEndDate, true).toISOString() };
     }
     return { fromIso: new Date(0).toISOString(), toIso: now.toISOString() };
   };
@@ -190,7 +204,7 @@ export function AdvancedReports() {
 
     // Daily breakdown for monthly/yearly reports
     const dailyBreakdown = filteredInvoices.reduce((acc, inv) => {
-      const date = new Date(inv.createdAt).toISOString().split("T")[0];
+      const date = getLocalDateString(new Date(inv.createdAt));
       if (!acc[date]) {
         acc[date] = { count: 0, revenue: 0, completed: 0 };
       }

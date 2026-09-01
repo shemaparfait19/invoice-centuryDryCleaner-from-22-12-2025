@@ -51,6 +51,19 @@ export function formatTime(time?: string | null): string {
   return `${hour12}:${m.toString().padStart(2, '0')} ${period}`
 }
 
+// Formats a Date as a local-timezone "YYYY-MM-DD" string. Prefer this over
+// `date.toISOString().split('T')[0]` for "today's date" — toISOString
+// converts to UTC first, which silently returns YESTERDAY's date for a
+// couple of hours after local midnight in any timezone ahead of UTC
+// (e.g. Kigali, UTC+2). That bug is what caused invoices created just
+// after midnight to get dated (and reported) as the previous day.
+export function getLocalDateString(date: Date = new Date()): string {
+  const y = date.getFullYear()
+  const m = (date.getMonth() + 1).toString().padStart(2, '0')
+  const d = date.getDate().toString().padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
 export function createDateFolder(): string {
   const date = new Date()
   const year = date.getFullYear()
