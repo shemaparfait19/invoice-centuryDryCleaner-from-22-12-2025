@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -22,15 +24,32 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   CheckCircle,
   Clock,
   XCircle,
   AlertTriangle,
   RefreshCw,
+  Wallet,
 } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency, formatTime } from "@/lib/utils";
 import type { Invoice } from "@/lib/types";
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  UNPAID: "Unpaid / On Account",
+  CASH: "Cash",
+  MOMO: "Mobile Money",
+  BANK: "Bank Transfer",
+  CARD: "Card Payment",
+};
 
 interface InvoiceStatusManagerProps {
   invoice: Invoice;
@@ -47,12 +66,41 @@ export function InvoiceStatusManager({
   const [newStatus, setNewStatus] = useState<
     "pending" | "completed" | "cancelled" | null
   >(null);
+  const [isRecordingPayment, setIsRecordingPayment] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("CASH");
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   const {
     updateInvoiceStatus,
     updateInvoicePaid,
-    updateInvoicePaymentMethod,
+    addPayment,
     loading,
   } = useSupabaseStore();
+
+  const balanceDue = invoice.balanceDue ?? (invoice.paid ? 0 : invoice.total);
+  const amountPaid = invoice.amountPaid ?? (invoice.paid ? invoice.total : 0);
+  const payments = invoice.payments ?? [];
+
+  const openRecordPayment = () => {
+    setPaymentAmount(balanceDue > 0 ? String(balanceDue) : "");
+    setPaymentMethod(invoice.paymentMethod !== "UNPAID" ? invoice.paymentMethod : "CASH");
+    setIsRecordingPayment(true);
+  };
+
+  const submitPayment = async () => {
+    const amount = parseFloat(paymentAmount);
+    if (!(amount > 0)) return;
+    setIsSubmittingPayment(true);
+    try {
+      await addPayment(invoice.id, amount, paymentMethod);
+      setIsRecordingPayment(false);
+      setPaymentAmount("");
+    } catch {
+      // Store already surfaced a toast explaining why.
+    } finally {
+      setIsSubmittingPayment(false);
+    }
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -88,7 +136,7 @@ export function InvoiceStatusManager({
   };
 
   const blockedByUnpaidStatus =
-    newStatus === "completed" && !invoice.paid;
+    newStatus === "completed" && balanceDue > 0;
 
   const confirmStatusChange = async () => {
     if (!newStatus || blockedByUnpaidStatus) return;
@@ -169,8 +217,8 @@ export function InvoiceStatusManager({
             </AlertDialogHeader>
             {blockedByUnpaidStatus && (
               <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">
-                This invoice is still <strong>UNPAID</strong>. Mark payment as
-                received before completing it.
+                A balance of <strong>{formatCurrency(balanceDue)}</strong> is
+                still owed. Record the payment before completing it.
               </p>
             )}
             <AlertDialogFooter>
@@ -276,46 +324,141 @@ export function InvoiceStatusManager({
           </div>
         </div>
 
-        <div className="space-y-2 pt-2 border-t">
-          <h4 className="font-medium">Payment:</h4>
-          <div className="flex gap-2 flex-wrap items-center">
+        <div className="space-y-3 pt-2 border-t">
+          <div className="flex items-center justify-between">
+            <h4 className="font-medium">Payment:</h4>
             <Badge
               className={
-                invoice.paid
+                balanceDue <= 0
                   ? "bg-green-100 text-green-800"
+                  : amountPaid > 0
+                  ? "bg-blue-100 text-blue-800"
                   : "bg-yellow-100 text-yellow-800"
               }
             >
-              {invoice.paid ? "PAID" : "UNPAID"}
+              {balanceDue <= 0 ? "PAID" : amountPaid > 0 ? "PARTIALLY PAID" : "UNPAID"}
             </Badge>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => updateInvoicePaid(invoice.id, !invoice.paid)}
-              disabled={loading}
-            >
-              Mark {invoice.paid ? "Unpaid" : "Paid"}
-            </Button>
-            <Select
-              value={invoice.paymentMethod}
-              onValueChange={(value) =>
-                updateInvoicePaymentMethod(invoice.id, value)
-              }
-              disabled={loading}
-            >
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="Payment Method" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="UNPAID">Unpaid / On Account</SelectItem>
-                <SelectItem value="CASH">Cash</SelectItem>
-                <SelectItem value="MOMO">Mobile Money</SelectItem>
-                <SelectItem value="BANK">Bank Transfer</SelectItem>
-                <SelectItem value="CARD">Card Payment</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
+
+          <div className="grid grid-cols-3 gap-2 text-sm">
+            <div>
+              <p className="text-muted-foreground text-xs">Total</p>
+              <p className="font-semibold">{formatCurrency(invoice.total)}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs">Paid</p>
+              <p className="font-semibold text-green-700">{formatCurrency(amountPaid)}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs">Balance Due</p>
+              <p className={`font-semibold ${balanceDue > 0 ? "text-red-700" : "text-green-700"}`}>
+                {formatCurrency(balanceDue)}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-2 flex-wrap items-center">
+            {balanceDue > 0 && (
+              <Button
+                size="sm"
+                onClick={openRecordPayment}
+                disabled={loading}
+                className="flex items-center gap-2"
+              >
+                <Wallet className="h-4 w-4" />
+                Record Payment
+              </Button>
+            )}
+            {amountPaid > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => updateInvoicePaid(invoice.id, false)}
+                disabled={loading}
+              >
+                Reset to Unpaid
+              </Button>
+            )}
+          </div>
+
+          {payments.length > 0 && (
+            <div className="space-y-1 pt-1">
+              <p className="text-xs font-medium text-muted-foreground">Payment history</p>
+              <div className="space-y-1">
+                {payments.map((p) => (
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between text-xs bg-muted/50 rounded px-2 py-1.5"
+                  >
+                    <span>
+                      {PAYMENT_METHOD_LABELS[p.method] || p.method}
+                      {p.paidByName ? ` · ${p.paidByName}` : ""}
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <span className="font-semibold">{formatCurrency(p.amount)}</span>
+                      <span className="text-muted-foreground">
+                        {new Date(p.createdAt).toLocaleDateString()}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
+
+        <Dialog open={isRecordingPayment} onOpenChange={setIsRecordingPayment}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Record Payment</DialogTitle>
+              <DialogDescription>
+                Balance due: {formatCurrency(balanceDue)}. Enter less than the full
+                amount to record a partial payment — the rest stays owed.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label htmlFor="payment-amount">Amount</Label>
+                <Input
+                  id="payment-amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <Label htmlFor="payment-method">Method</Label>
+                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                  <SelectTrigger id="payment-method">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CASH">Cash</SelectItem>
+                    <SelectItem value="MOMO">Mobile Money</SelectItem>
+                    <SelectItem value="BANK">Bank Transfer</SelectItem>
+                    <SelectItem value="CARD">Card Payment</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                onClick={submitPayment}
+                disabled={
+                  isSubmittingPayment ||
+                  !(parseFloat(paymentAmount) > 0) ||
+                  parseFloat(paymentAmount) > balanceDue + 1
+                }
+                className="w-full sm:w-auto"
+              >
+                {isSubmittingPayment ? "Recording..." : "Record Payment"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {invoice.pickupDate && invoice.pickupTime && (
           <div className="pt-2 border-t">
@@ -339,8 +482,8 @@ export function InvoiceStatusManager({
             </AlertDialogHeader>
             {blockedByUnpaidStatus && (
               <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">
-                This invoice is still <strong>UNPAID</strong>. Mark payment as
-                received (see the Payment section above) before completing it.
+                A balance of <strong>{formatCurrency(balanceDue)}</strong> is
+                still owed (see the Payment section above) before completing it.
               </p>
             )}
             <AlertDialogFooter>

@@ -74,9 +74,16 @@ export default function HomePage() {
     currentUserName,
     setCurrentUser,
     signOut,
+    isOnline,
+    lastSyncedAt,
+    subscribeToNetworkStatus,
   } = useSupabaseStore();
   const [phoneInput, setPhoneInput] = useState("");
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+
+  useEffect(() => {
+    subscribeToNetworkStatus();
+  }, [subscribeToNetworkStatus]);
 
   useEffect(() => {
     // If we've already connected once this session (e.g. navigating back
@@ -282,6 +289,8 @@ export default function HomePage() {
                 )}
                 <Button
                   onClick={handleNewInvoice}
+                  disabled={!isOnline}
+                  title={!isOnline ? "You're offline — connect to create a new invoice" : undefined}
                   className="flex items-center gap-2 w-full sm:w-auto"
                 >
                   <Plus className="h-4 w-4" />
@@ -289,6 +298,17 @@ export default function HomePage() {
                 </Button>
               </div>
             </div>
+
+            {!isOnline && (
+              <div className="flex items-center gap-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                <span className="h-2 w-2 rounded-full bg-amber-500 flex-shrink-0" />
+                You're offline — showing data as of{" "}
+                {lastSyncedAt
+                  ? new Date(lastSyncedAt).toLocaleTimeString()
+                  : "last connection"}
+                . New invoices and edits are paused until you're back online.
+              </div>
+            )}
 
             <RealTimeStatusIndicator />
 
@@ -392,6 +412,8 @@ export default function HomePage() {
                 <CardContent className="space-y-4">
                   <Button
                     onClick={handleNewInvoice}
+                    disabled={!isOnline}
+                    title={!isOnline ? "You're offline — connect to create a new invoice" : undefined}
                     className="w-full justify-start"
                   >
                     <Plus className="h-4 w-4 mr-2" />

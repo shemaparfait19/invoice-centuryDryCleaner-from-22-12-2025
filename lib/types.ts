@@ -5,6 +5,10 @@ export interface Client {
   address?: string;
   visitCount: number;
   rewardClaimed: boolean;
+  // Loyalty: how many earned rewards (one per REWARD_MILESTONE visits, see
+  // lib/loyalty.ts) the client has actually redeemed so far. Rewards
+  // available = floor(visitCount / REWARD_MILESTONE) - rewardsRedeemed.
+  rewardsRedeemed: number;
   lastVisit: string;
   createdAt: string;
   updatedAt: string;
@@ -18,6 +22,17 @@ export interface InvoiceItem {
   totalPrice: number;
 }
 
+// One recorded payment against an invoice. An invoice can have several —
+// a deposit now and the remainder later, optionally via different methods.
+export interface Payment {
+  id: string;
+  amount: number;
+  method: string;
+  paidByName?: string;
+  paidByPhone?: string;
+  createdAt: string;
+}
+
 export interface Invoice {
   id: string;
   client: Client;
@@ -25,6 +40,10 @@ export interface Invoice {
   total: number;
   paymentMethod: string;
   paid?: boolean;
+  payments?: Payment[];
+  // Derived from `payments` — sum of amounts, and total - amountPaid.
+  amountPaid?: number;
+  balanceDue?: number;
   status: "pending" | "completed" | "cancelled";
   pickupDate?: string;
   pickupTime?: string;

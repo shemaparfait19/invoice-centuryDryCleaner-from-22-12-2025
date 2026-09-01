@@ -5,7 +5,15 @@ import { supabase } from "./supabase";
 import type { Client, Invoice, InvoiceItem, UserAccount } from "./types";
 import { toast } from "@/hooks/use-toast";
 import { RealtimeChannel } from "@supabase/supabase-js";
-import { getLocalDateString } from "./utils";
+import { getLocalDateString, generateInvoiceId, normalizePhoneForMatch } from "./utils";
+
+// One group of clients that look like the same person, e.g. from a
+// duplicate created before pagination bugs were fixed. `key` is the
+// normalized phone number they share.
+export interface DuplicateClientGroup {
+  key: string;
+  clients: Client[];
+}
 
 interface SupabaseStore {
   invoices: Invoice[];
@@ -23,6 +31,12 @@ interface SupabaseStore {
   allInvoicesLoaded: boolean;
   isLoadingMore: boolean;
 
+  // Network status — used to switch to a read-only view of the last
+  // successfully synced data instead of a dead "no internet" screen.
+  isOnline: boolean;
+  lastSyncedAt: string | null;
+  subscribeToNetworkStatus: () => void;
+
   // Database setup
   checkDatabaseSetup: () => Promise<boolean>;
   initializeDatabase: () => Promise<void>;
@@ -34,6 +48,9 @@ interface SupabaseStore {
   ) => Promise<Client | null>;
   updateClient: (id: string, updates: Partial<Client>) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
+  findDuplicateClients: () => DuplicateClientGroup[];
+  mergeClients: (keepId: string, mergeIds: string[]) => Promise<void>;
+  redeemClientReward: (clientId: string) => Promise<void>;
 
   // Invoice operations
   loadInvoices: () => Promise<void>;
@@ -46,6 +63,7 @@ interface SupabaseStore {
   ) => Promise<void>;
   updateInvoice: (id: string, invoice: Partial<Invoice>) => Promise<void>;
   deleteInvoice: (id: string) => Promise<void>;
+  addPayment: (invoiceId: string, amount: number, method: string) => Promise<void>;
 
   // Pickup notifications
   getPickupNotifications: () => Invoice[];
@@ -66,6 +84,17 @@ interface SupabaseStore {
   updateInvoicePaid: (id: string, paid: boolean) => Promise<void>;
   updateInvoicePaymentMethod: (id: string, paymentMethod: string) => Promise<void>;
   updateInvoiceSection: (id: string, section: string | null) => Promise<void>;
+}
+
+// Called at the top of every write action. Offline mode is read-only —
+// clearly refuse to save rather than let a write hang/fail confusingly,
+// or silently disagree with what the last-synced data on screen shows.
+function assertOnline(get: () => { isOnline: boolean }) {
+  if (!get().isOnline) {
+    const message = "You're offline — connect to the internet to save changes.";
+    toast({ title: "Offline", description: message, variant: "destructive" });
+    throw new Error(message);
+  }
 }
 
 // Cached probe: have the actor-tracking columns been migrated yet?
@@ -101,6 +130,22 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
   invoicesPage: 0,
   allInvoicesLoaded: false,
   isLoadingMore: false,
+
+  // Network status
+  isOnline: typeof navigator === "undefined" ? true : navigator.onLine,
+  lastSyncedAt: null,
+
+  subscribeToNetworkStatus: () => {
+    if (typeof window === "undefined") return;
+    const goOnline = () => {
+      set({ isOnline: true });
+      // Quietly catch back up the moment the connection returns.
+      get().loadData().catch(() => {});
+    };
+    const goOffline = () => set({ isOnline: false });
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+  },
 
   clearError: () => set({ error: null }),
 
@@ -296,6 +341,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         address: client.address || "",
         visitCount: client.visit_count || 0,
         rewardClaimed: client.reward_claimed || false,
+        rewardsRedeemed: client.rewards_redeemed || 0,
         lastVisit: client.last_visit || new Date().toISOString(),
         createdAt: client.created_at,
         updatedAt: client.updated_at,
@@ -310,6 +356,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
   },
 
   addClient: async (clientData) => {
+    assertOnline(get);
     try {
       set({ loading: true, error: null });
 
@@ -321,6 +368,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           address: clientData.address || null,
           visit_count: clientData.visitCount || 0,
           reward_claimed: clientData.rewardClaimed || false,
+          rewards_redeemed: clientData.rewardsRedeemed || 0,
           last_visit: clientData.lastVisit || new Date().toISOString(),
         })
         .select()
@@ -338,6 +386,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         address: data.address || "",
         visitCount: data.visit_count || 0,
         rewardClaimed: data.reward_claimed || false,
+        rewardsRedeemed: data.rewards_redeemed || 0,
         lastVisit: data.last_visit || new Date().toISOString(),
         createdAt: data.created_at,
         updatedAt: data.updated_at,
@@ -381,6 +430,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
   },
 
   updateClient: async (id, updates) => {
+    assertOnline(get);
     try {
       set({ loading: true, error: null });
 
@@ -443,6 +493,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
   },
 
   deleteClient: async (id) => {
+    assertOnline(get);
     try {
       set({ loading: true, error: null });
 
@@ -484,6 +535,157 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
     }
   },
 
+  // Groups clients that share the same phone number once formatting
+  // differences are normalized away — e.g. a real duplicate created while
+  // loadClients() was silently missing rows past Supabase's 1000-row cap.
+  findDuplicateClients: () => {
+    const byPhone = new Map<string, Client[]>();
+    for (const client of get().clients) {
+      const key = normalizePhoneForMatch(client.phone);
+      if (!key) continue;
+      const group = byPhone.get(key);
+      if (group) group.push(client);
+      else byPhone.set(key, [client]);
+    }
+    return Array.from(byPhone.entries())
+      .filter(([, group]) => group.length > 1)
+      .map(([key, clients]) => ({
+        key,
+        // Oldest first — usually the record other systems/history point to.
+        clients: [...clients].sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        ),
+      }));
+  },
+
+  // Folds `mergeIds` into `keepId`: reassigns their invoices, combines
+  // visit counts and reward redemptions, keeps the best address, then
+  // deletes the now-empty duplicate rows.
+  mergeClients: async (keepId, mergeIds) => {
+    assertOnline(get);
+    const ids = mergeIds.filter((id) => id !== keepId);
+    if (ids.length === 0) return;
+
+    try {
+      set({ loading: true, error: null });
+
+      const { clients } = get();
+      const keep = clients.find((c) => c.id === keepId);
+      const merging = clients.filter((c) => ids.includes(c.id));
+      if (!keep) throw new Error("Client to keep not found");
+
+      const combinedVisitCount =
+        keep.visitCount + merging.reduce((sum, c) => sum + c.visitCount, 0);
+      const combinedRewardsRedeemed =
+        keep.rewardsRedeemed + merging.reduce((sum, c) => sum + c.rewardsRedeemed, 0);
+      const bestAddress = keep.address || merging.find((c) => c.address)?.address || null;
+      const earliestVisit = [keep, ...merging]
+        .map((c) => c.lastVisit)
+        .sort()[0];
+
+      // Point every invoice from the duplicates at the surviving record.
+      const { error: reassignError } = await supabase
+        .from("invoices")
+        .update({ client_id: keepId })
+        .in("client_id", ids);
+      if (reassignError)
+        throw new Error(`Failed to move invoices: ${reassignError.message}`);
+
+      const { error: updateError } = await supabase
+        .from("clients")
+        .update({
+          visit_count: combinedVisitCount,
+          rewards_redeemed: combinedRewardsRedeemed,
+          address: bestAddress,
+          last_visit: earliestVisit,
+        })
+        .eq("id", keepId);
+      if (updateError)
+        throw new Error(`Failed to update merged client: ${updateError.message}`);
+
+      const { error: deleteError } = await supabase
+        .from("clients")
+        .delete()
+        .in("id", ids);
+      if (deleteError)
+        throw new Error(`Failed to remove duplicate clients: ${deleteError.message}`);
+
+      try {
+        const { currentUserPhone, currentUserName } = get();
+        await supabase.from("audit_logs").insert({
+          action: "merge",
+          entity_type: "client",
+          entity_id: keepId,
+          actor_phone: currentUserPhone,
+          actor_name: currentUserName,
+          changes: { mergedIds: ids },
+        });
+      } catch {}
+
+      await get().loadClients();
+      await get().loadInvoices();
+      set({ loading: false });
+
+      toast({ title: `Merged ${ids.length} duplicate${ids.length > 1 ? "s" : ""} into ${keep.name}` });
+    } catch (error: any) {
+      const errorMessage = error.message || "Failed to merge clients";
+      set({ error: errorMessage, loading: false });
+      toast({
+        title: "Error merging clients",
+        description: errorMessage,
+        variant: "destructive",
+      });
+      throw error;
+    }
+  },
+
+  redeemClientReward: async (clientId) => {
+    assertOnline(get);
+    try {
+      const client = get().clients.find((c) => c.id === clientId);
+      if (!client) throw new Error("Client not found");
+
+      const { getRewardsAvailable } = await import("./loyalty");
+      if (getRewardsAvailable(client) <= 0) {
+        throw new Error("This client has no reward available to redeem");
+      }
+
+      const newRedeemedCount = client.rewardsRedeemed + 1;
+      const { error } = await supabase
+        .from("clients")
+        .update({ rewards_redeemed: newRedeemedCount })
+        .eq("id", clientId);
+
+      if (error) throw new Error(`Failed to redeem reward: ${error.message}`);
+
+      set((state) => ({
+        clients: state.clients.map((c) =>
+          c.id === clientId ? { ...c, rewardsRedeemed: newRedeemedCount } : c
+        ),
+      }));
+
+      try {
+        const { currentUserPhone, currentUserName } = get();
+        await supabase.from("audit_logs").insert({
+          action: "reward_redeemed",
+          entity_type: "client",
+          entity_id: clientId,
+          actor_phone: currentUserPhone,
+          actor_name: currentUserName,
+        });
+      } catch {}
+
+      toast({ title: `Reward redeemed for ${client.name}` });
+    } catch (error: any) {
+      toast({
+        title: "Error redeeming reward",
+        description: error.message,
+        variant: "destructive",
+      });
+      throw error;
+    }
+  },
+
   loadInvoices: async () => {
     try {
       // Reset pagination state for fresh load
@@ -495,7 +697,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         .select(`
           *,
           client:clients(*),
-          invoice_items(*)
+          invoice_items(*), payments(*)
         `)
         .order("created_at", { ascending: false })
         .range(0, 49); // Load first 50 invoices
@@ -518,6 +720,17 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             console.warn(`Client not found for invoice ${invoice.id}`);
             return null;
           }
+
+          const payments = (invoice.payments || []).map((p: any) => ({
+            id: p.id,
+            amount: parseFloat(p.amount),
+            method: p.method,
+            paidByName: p.paid_by_name || undefined,
+            paidByPhone: p.paid_by_phone || undefined,
+            createdAt: p.created_at,
+          }));
+          const invoiceTotal = parseFloat(invoice.total);
+          const amountPaid = payments.reduce((sum: number, p: any) => sum + p.amount, 0);
 
           return {
             id: invoice.id,
@@ -542,6 +755,9 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             total: parseFloat(invoice.total),
             paymentMethod: invoice.payment_method,
             paid: invoice.paid ?? false,
+            payments,
+            amountPaid,
+            balanceDue: Math.max(0, invoiceTotal - amountPaid),
             status: invoice.status,
             pickupDate: invoice.pickup_date || undefined,
             pickupTime: invoice.pickup_time || undefined,
@@ -599,7 +815,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         .select(`
           *,
           client:clients(*),
-          invoice_items(*)
+          invoice_items(*), payments(*)
         `)
         .order("created_at", { ascending: false })
         .range(from, to);
@@ -624,6 +840,17 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             return null;
           }
 
+          const payments = (invoice.payments || []).map((p: any) => ({
+            id: p.id,
+            amount: parseFloat(p.amount),
+            method: p.method,
+            paidByName: p.paid_by_name || undefined,
+            paidByPhone: p.paid_by_phone || undefined,
+            createdAt: p.created_at,
+          }));
+          const invoiceTotal = parseFloat(invoice.total);
+          const amountPaid = payments.reduce((sum: number, p: any) => sum + p.amount, 0);
+
           return {
             id: invoice.id,
             client: {
@@ -647,6 +874,9 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             total: parseFloat(invoice.total),
             paymentMethod: invoice.payment_method,
             paid: invoice.paid ?? false,
+            payments,
+            amountPaid,
+            balanceDue: Math.max(0, invoiceTotal - amountPaid),
             status: invoice.status,
             pickupDate: invoice.pickup_date || undefined,
             pickupTime: invoice.pickup_time || undefined,
@@ -701,7 +931,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
     const selectJoined = `
           *,
           client:clients(*),
-          invoice_items(*)
+          invoice_items(*), payments(*)
         `;
 
     const pageSize = 1000;
@@ -758,6 +988,17 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
     const invoices: Invoice[] = Array.from(merged.values())
       .map((invoice: any) => {
         if (!invoice.client) return null;
+        const payments = (invoice.payments || []).map((p: any) => ({
+          id: p.id,
+          amount: parseFloat(p.amount),
+          method: p.method,
+          paidByName: p.paid_by_name || undefined,
+          paidByPhone: p.paid_by_phone || undefined,
+          createdAt: p.created_at,
+        }));
+        const invoiceTotal = parseFloat(invoice.total);
+        const amountPaid = payments.reduce((sum: number, p: any) => sum + p.amount, 0);
+
         return {
           id: invoice.id,
           client: {
@@ -781,6 +1022,9 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           total: parseFloat(invoice.total),
           paymentMethod: invoice.payment_method,
           paid: invoice.paid ?? false,
+          payments,
+          amountPaid,
+          balanceDue: Math.max(0, invoiceTotal - amountPaid),
           status: invoice.status,
           pickupDate: invoice.pickup_date || undefined,
           pickupTime: invoice.pickup_time || undefined,
@@ -824,7 +1068,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
     try {
       let query = supabase
         .from("invoices")
-        .select(`*, client:clients(*), invoice_items(*)`);
+        .select(`*, client:clients(*), invoice_items(*), payments(*)`);
 
       if (filter === "completed") {
         query = query.eq("status", "completed");
@@ -842,6 +1086,17 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
       const invoices = data
         .map((invoice: any) => {
           if (!invoice.client) return null;
+          const payments = (invoice.payments || []).map((p: any) => ({
+            id: p.id,
+            amount: parseFloat(p.amount),
+            method: p.method,
+            paidByName: p.paid_by_name || undefined,
+            paidByPhone: p.paid_by_phone || undefined,
+            createdAt: p.created_at,
+          }));
+          const invoiceTotal = parseFloat(invoice.total);
+          const amountPaid = payments.reduce((sum: number, p: any) => sum + p.amount, 0);
+
           return {
             id: invoice.id,
             client: {
@@ -865,6 +1120,9 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             total: parseFloat(invoice.total),
             paymentMethod: invoice.payment_method,
             paid: invoice.paid ?? false,
+            payments,
+            amountPaid,
+            balanceDue: Math.max(0, invoiceTotal - amountPaid),
             status: invoice.status,
             pickupDate: invoice.pickup_date || undefined,
             pickupTime: invoice.pickup_time || undefined,
@@ -937,7 +1195,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
     const selectJoined = `
           *,
           client:clients(*),
-          invoice_items(*)
+          invoice_items(*), payments(*)
         `;
 
     const pageSize = 1000;
@@ -968,6 +1226,17 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
     const invoices: Invoice[] = allRows
       .map((invoice: any) => {
         if (!invoice.client) return null;
+        const payments = (invoice.payments || []).map((p: any) => ({
+          id: p.id,
+          amount: parseFloat(p.amount),
+          method: p.method,
+          paidByName: p.paid_by_name || undefined,
+          paidByPhone: p.paid_by_phone || undefined,
+          createdAt: p.created_at,
+        }));
+        const invoiceTotal = parseFloat(invoice.total);
+        const amountPaid = payments.reduce((sum: number, p: any) => sum + p.amount, 0);
+
         return {
           id: invoice.id,
           client: {
@@ -991,6 +1260,9 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           total: parseFloat(invoice.total),
           paymentMethod: invoice.payment_method,
           paid: invoice.paid ?? false,
+          payments,
+          amountPaid,
+          balanceDue: Math.max(0, invoiceTotal - amountPaid),
           status: invoice.status,
           pickupDate: invoice.pickup_date || undefined,
           pickupTime: invoice.pickup_time || undefined,
@@ -1016,6 +1288,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
   },
 
   addInvoice: async (invoiceData) => {
+    assertOnline(get);
     try {
       console.log("Starting invoice creation process...");
       set({ loading: true, error: null });
@@ -1045,41 +1318,59 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         created_by_phone: get().currentUserPhone || null,
       });
 
-      // Insert invoice
-      const { data: invoiceResult, error: invoiceError } = await supabase
-        .from("invoices")
-        .insert({
-          id: invoiceData.id,
-          client_id: invoiceData.client.id,
-          total: invoiceData.total,
-          payment_method: invoiceData.paymentMethod,
-          paid: invoiceData.paymentMethod !== "UNPAID",
-          status: invoiceData.status,
-          pickup_date: invoiceData.pickupDate || null,
-          pickup_time: invoiceData.pickupTime || null,
-          notes: invoiceData.notes || null,
-          section: invoiceData.section || null,
-          hangers_brought: invoiceData.hangersBrought ?? null,
-          hangers_count: invoiceData.hangersBrought
-            ? invoiceData.hangersCount ?? 0
-            : null,
-          covers_brought: invoiceData.coversBrought ?? null,
-          covers_count: invoiceData.coversBrought
-            ? invoiceData.coversCount ?? 0
-            : null,
-          created_by_name: get().currentUserName || null,
-          created_by_phone: get().currentUserPhone || null,
-          // Allow overriding created_at when provided
-          ...(invoiceData.createdAt
-            ? { created_at: invoiceData.createdAt }
-            : {}),
-        })
-        .select()
-        .single();
+      // Insert invoice. Invoice ids are date+random, so a same-day
+      // collision is very unlikely but not impossible — if Postgres
+      // rejects it as a duplicate key, regenerate a fresh id and retry
+      // instead of failing the whole save.
+      let invoiceResult: any = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const { data, error } = await supabase
+          .from("invoices")
+          .insert({
+            id: invoiceData.id,
+            client_id: invoiceData.client.id,
+            total: invoiceData.total,
+            payment_method: invoiceData.paymentMethod,
+            paid: invoiceData.paymentMethod !== "UNPAID",
+            status: invoiceData.status,
+            pickup_date: invoiceData.pickupDate || null,
+            pickup_time: invoiceData.pickupTime || null,
+            notes: invoiceData.notes || null,
+            section: invoiceData.section || null,
+            hangers_brought: invoiceData.hangersBrought ?? null,
+            hangers_count: invoiceData.hangersBrought
+              ? invoiceData.hangersCount ?? 0
+              : null,
+            covers_brought: invoiceData.coversBrought ?? null,
+            covers_count: invoiceData.coversBrought
+              ? invoiceData.coversCount ?? 0
+              : null,
+            created_by_name: get().currentUserName || null,
+            created_by_phone: get().currentUserPhone || null,
+            // Allow overriding created_at when provided
+            ...(invoiceData.createdAt
+              ? { created_at: invoiceData.createdAt }
+              : {}),
+          })
+          .select()
+          .single();
 
-      if (invoiceError) {
-        console.error("Invoice insert error:", invoiceError);
-        throw new Error(`Failed to create invoice: ${invoiceError.message}`);
+        if (!error) {
+          invoiceResult = data;
+          break;
+        }
+
+        const isDuplicateId = error.code === "23505";
+        if (isDuplicateId && attempt < 2) {
+          console.warn(
+            `Invoice id ${invoiceData.id} collided, regenerating and retrying...`
+          );
+          invoiceData.id = generateInvoiceId();
+          continue;
+        }
+
+        console.error("Invoice insert error:", error);
+        throw new Error(`Failed to create invoice: ${error.message}`);
       }
 
       console.log("Invoice inserted successfully:", invoiceResult);
@@ -1110,6 +1401,22 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         }
 
         console.log("Invoice items inserted successfully");
+      }
+
+      // A non-UNPAID method at creation means the client paid in full up
+      // front — record that as the invoice's first payment so amountPaid/
+      // balanceDue are correct from the start, not just the `paid` flag.
+      if (invoiceData.paymentMethod !== "UNPAID" && invoiceData.total > 0) {
+        const { error: paymentError } = await supabase.from("payments").insert({
+          invoice_id: invoiceData.id,
+          amount: invoiceData.total,
+          method: invoiceData.paymentMethod,
+          paid_by_name: get().currentUserName || null,
+          paid_by_phone: get().currentUserPhone || null,
+        });
+        if (paymentError) {
+          console.warn("Failed to record initial payment:", paymentError);
+        }
       }
 
       // Update client visit count
@@ -1165,6 +1472,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
   },
 
   updateInvoice: async (id, updates) => {
+    assertOnline(get);
     try {
       set({ loading: true, error: null });
 
@@ -1274,6 +1582,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
   },
 
   deleteInvoice: async (id) => {
+    assertOnline(get);
     try {
       set({ loading: true, error: null });
 
@@ -1316,6 +1625,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
   },
 
   updateInvoiceSection: async (id, section) => {
+    assertOnline(get);
     try {
       set({ loading: true, error: null });
 
@@ -1396,8 +1706,15 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
   loadData: async () => {
     try {
       await Promise.all([get().loadClients(), get().loadInvoices()]);
+      set({ lastSyncedAt: new Date().toISOString(), isOnline: true });
     } catch (error: any) {
       console.error("Error loading data:", error);
+      // A failed sync while the browser still thinks it's online usually
+      // means the connection is actually the problem — reflect that in
+      // the UI too, not just in this one call's error state.
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        set({ isOnline: false });
+      }
       throw error;
     }
   },
@@ -1445,14 +1762,24 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
   },
 
   updateInvoiceStatus: async (id, status) => {
+    assertOnline(get);
     // Never let an invoice be marked completed without a confirmed
     // payment — this is the single choke point every "mark completed"
     // action in the app goes through, so the rule holds everywhere.
     if (status === "completed") {
       const invoice = get().invoices.find((inv) => inv.id === id);
-      if (invoice && !invoice.paid) {
-        const message =
-          "Cannot mark this invoice as completed — payment hasn't been confirmed yet. Mark it as paid first.";
+      // With split/partial payments, `paid` alone isn't precise enough —
+      // a deposit could be recorded (paid=false, but not "unpaid" either).
+      // The real requirement is the balance being fully settled.
+      const stillOwes = invoice
+        ? invoice.balanceDue !== undefined
+          ? invoice.balanceDue > 0
+          : !invoice.paid
+        : false;
+      if (stillOwes) {
+        const message = invoice?.balanceDue
+          ? `Cannot mark this invoice as completed — a balance of ${invoice.balanceDue.toLocaleString()} is still unpaid.`
+          : "Cannot mark this invoice as completed — payment hasn't been confirmed yet. Mark it as paid first.";
         toast({
           title: "Payment not confirmed",
           description: message,
@@ -1529,51 +1856,57 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
     }
   },
 
+  // Quick full-paid/unpaid toggle (the split/partial "Record Payment"
+  // flow is addPayment). Kept reconciled with the payments ledger so the
+  // two never disagree: marking paid records one payment for whatever
+  // balance remains; marking unpaid reverses that by clearing payments.
   updateInvoicePaid: async (id, paid) => {
+    assertOnline(get);
     const { currentUserName, currentUserPhone } = get();
-    // Older invoices (e.g. only reached via search) may not be in the
-    // paginated local cache — that must not stop the write from happening,
-    // it just means there's nothing to optimistically update/roll back.
     const previous = get().invoices.find((inv) => inv.id === id);
 
-    if (previous) {
-      // Optimistic update: reflect the toggle instantly instead of making
-      // the whole UI wait for the round-trip to Supabase to finish.
+    if (paid) {
+      const balance = previous?.balanceDue ?? previous?.total ?? 0;
+      if (balance > 0) {
+        const method =
+          previous?.paymentMethod && previous.paymentMethod !== "UNPAID"
+            ? previous.paymentMethod
+            : "CASH";
+        await get().addPayment(id, balance, method);
+      }
+      return;
+    }
+
+    // Marking unpaid — nothing was actually received after all, so clear
+    // whatever payments were recorded rather than leaving them
+    // contradicting the flag.
+    try {
+      const { error: deleteError } = await supabase
+        .from("payments")
+        .delete()
+        .eq("invoice_id", id);
+      if (deleteError) throw new Error(deleteError.message);
+
+      const { error } = await supabase
+        .from("invoices")
+        .update({ paid: false, updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw new Error(`Failed to update paid flag: ${error.message}`);
+
       set((state) => ({
         invoices: state.invoices.map((inv) =>
           inv.id === id
             ? {
                 ...inv,
-                paid,
+                paid: false,
+                payments: [],
+                amountPaid: 0,
+                balanceDue: inv.total,
                 updatedAt: new Date().toISOString(),
-                paidByName: paid ? (currentUserName || undefined) : undefined,
-                paidByPhone: paid ? (currentUserPhone || undefined) : undefined,
               }
             : inv
         ),
-        error: null,
       }));
-    }
-
-    try {
-      const hasActorCols = await checkActorColumns();
-
-      const paidPayload: Record<string, any> = {
-        paid,
-        updated_at: new Date().toISOString(),
-        ...(hasActorCols && {
-          paid_by_name: paid ? (currentUserName || null) : null,
-          paid_by_phone: paid ? (currentUserPhone || null) : null,
-        }),
-      };
-
-      const { error } = await supabase.from("invoices").update(paidPayload).eq("id", id);
-
-      if (error) {
-        throw new Error(`Failed to update paid flag: ${error.message}`);
-      }
-
-      toast({ title: paid ? "Marked as PAID" : "Marked as UNPAID" });
 
       try {
         await supabase.from("audit_logs").insert({
@@ -1582,21 +1915,14 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           entity_id: id,
           actor_phone: currentUserPhone,
           actor_name: currentUserName,
-          changes: { paid },
+          changes: { paid: false },
         });
       } catch {}
+
+      toast({ title: "Marked as UNPAID" });
     } catch (error: any) {
       console.error("Error updating paid flag:", error);
-      // Roll back the optimistic change since it didn't actually save
-      // (nothing to roll back if it was never in the local cache).
-      if (previous) {
-        set((state) => ({
-          invoices: state.invoices.map((inv) => (inv.id === id ? previous : inv)),
-          error: error.message,
-        }));
-      } else {
-        set({ error: error.message });
-      }
+      set({ error: error.message });
       toast({
         title: "Error updating paid flag",
         description: error.message,
@@ -1605,78 +1931,139 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
     }
   },
 
+  // Changes the label of how an invoice is being paid. Picking a real
+  // method while a balance remains records a payment for that balance
+  // (same as updateInvoicePaid(true)); picking UNPAID just relabels it
+  // without touching any payments already on record.
   updateInvoicePaymentMethod: async (id, method) => {
-    const { currentUserName, currentUserPhone } = get();
-    // See updateInvoicePaid — older/uncached invoices must still get the
-    // write, just without an optimistic local update to roll back.
-    const previous = get().invoices.find((inv) => inv.id === id);
-    const isPaying = method !== "UNPAID";
+    assertOnline(get);
+    const invoice = get().invoices.find((inv) => inv.id === id);
+    const balance = invoice?.balanceDue ?? invoice?.total ?? 0;
 
-    if (previous) {
-      // Optimistic update — see updateInvoicePaid for why.
-      set((state) => ({
-        invoices: state.invoices.map((inv) =>
-          inv.id === id
-            ? {
-                ...inv,
-                paymentMethod: method,
-                paid: isPaying,
-                updatedAt: new Date().toISOString(),
-                paidByName: isPaying ? (currentUserName || undefined) : undefined,
-                paidByPhone: isPaying ? (currentUserPhone || undefined) : undefined,
-              }
-            : inv
-        ),
-        error: null,
-      }));
+    if (method !== "UNPAID" && balance > 0) {
+      await get().addPayment(id, balance, method);
+      return;
     }
 
     try {
-      const hasActorCols = await checkActorColumns();
-
-      const methodPayload: Record<string, any> = {
-        payment_method: method,
-        paid: isPaying,
-        updated_at: new Date().toISOString(),
-        ...(hasActorCols && {
-          paid_by_name: isPaying ? (currentUserName || null) : null,
-          paid_by_phone: isPaying ? (currentUserPhone || null) : null,
-        }),
-      };
-
-      const { error } = await supabase.from("invoices").update(methodPayload).eq("id", id);
-
+      const { error } = await supabase
+        .from("invoices")
+        .update({ payment_method: method, updated_at: new Date().toISOString() })
+        .eq("id", id);
       if (error)
         throw new Error(`Failed to update payment method: ${error.message}`);
 
-      toast({ title: "Payment method updated" });
+      set((state) => ({
+        invoices: state.invoices.map((inv) =>
+          inv.id === id ? { ...inv, paymentMethod: method } : inv
+        ),
+      }));
 
-      try {
-        await supabase.from("audit_logs").insert({
-          action: "payment_update",
-          entity_type: "invoice",
-          entity_id: id,
-          actor_phone: currentUserPhone,
-          actor_name: currentUserName,
-          changes: { paid: isPaying, paymentMethod: method },
-        });
-      } catch {}
+      toast({ title: "Payment method updated" });
     } catch (error: any) {
-      // Roll back the optimistic change since it didn't actually save
-      // (nothing to roll back if it was never in the local cache).
-      if (previous) {
-        set((state) => ({
-          invoices: state.invoices.map((inv) => (inv.id === id ? previous : inv)),
-          error: error.message,
-        }));
-      } else {
-        set({ error: error.message });
-      }
+      set({ error: error.message });
       toast({
         title: "Error updating payment method",
         description: error.message,
         variant: "destructive",
       });
+    }
+  },
+
+  addPayment: async (invoiceId, amount, method) => {
+    assertOnline(get);
+    if (!(amount > 0)) {
+      toast({ title: "Enter a payment amount greater than zero", variant: "destructive" });
+      throw new Error("Payment amount must be greater than zero");
+    }
+
+    const invoice = get().invoices.find((inv) => inv.id === invoiceId);
+    const currentBalance = invoice
+      ? invoice.balanceDue ?? (invoice.paid ? 0 : invoice.total)
+      : undefined;
+    // Allow a tiny rounding cushion, but not a materially larger payment
+    // than what's actually owed — this is what makes "split payment"
+    // trustworthy: the numbers always add up to the invoice total.
+    if (currentBalance !== undefined && amount > currentBalance + 1) {
+      toast({
+        title: "Amount exceeds balance due",
+        description: `Only ${currentBalance.toLocaleString()} is still owed on this invoice.`,
+        variant: "destructive",
+      });
+      throw new Error("Payment amount exceeds balance due");
+    }
+
+    const { currentUserName, currentUserPhone } = get();
+
+    try {
+      const { data, error } = await supabase
+        .from("payments")
+        .insert({
+          invoice_id: invoiceId,
+          amount,
+          method,
+          paid_by_name: currentUserName || null,
+          paid_by_phone: currentUserPhone || null,
+        })
+        .select()
+        .single();
+
+      if (error) throw new Error(`Failed to record payment: ${error.message}`);
+
+      const newPayment = {
+        id: data.id,
+        amount: parseFloat(data.amount),
+        method: data.method,
+        paidByName: data.paid_by_name || undefined,
+        paidByPhone: data.paid_by_phone || undefined,
+        createdAt: data.created_at,
+      };
+
+      set((state) => ({
+        invoices: state.invoices.map((inv) => {
+          if (inv.id !== invoiceId) return inv;
+          const payments = [...(inv.payments || []), newPayment];
+          const amountPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+          const balanceDue = Math.max(0, inv.total - amountPaid);
+          return {
+            ...inv,
+            payments,
+            amountPaid,
+            balanceDue,
+            paid: balanceDue <= 0,
+            paymentMethod: method,
+            updatedAt: new Date().toISOString(),
+          };
+        }),
+      }));
+
+      try {
+        await supabase.from("invoices").update({
+          paid: (currentBalance ?? amount) - amount <= 0,
+          payment_method: method,
+          updated_at: new Date().toISOString(),
+        }).eq("id", invoiceId);
+      } catch {}
+
+      try {
+        await supabase.from("audit_logs").insert({
+          action: "payment_recorded",
+          entity_type: "invoice",
+          entity_id: invoiceId,
+          actor_phone: currentUserPhone,
+          actor_name: currentUserName,
+          changes: { amount, method },
+        });
+      } catch {}
+
+      toast({ title: `Payment of ${amount.toLocaleString()} recorded` });
+    } catch (error: any) {
+      toast({
+        title: "Error recording payment",
+        description: error.message,
+        variant: "destructive",
+      });
+      throw error;
     }
   },
 }));

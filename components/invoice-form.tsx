@@ -27,7 +27,7 @@ import {
 import { Plus, Trash2 } from "lucide-react";
 import { SERVICES } from "@/lib/services";
 import { useSupabaseStore } from "@/lib/supabase-store";
-import { formatCurrency, formatTime, generateInvoiceId, getLocalDateString } from "@/lib/utils";
+import { formatCurrency, formatTime, generateInvoiceId, getLocalDateString, normalizePhoneForMatch } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import type { Client, Invoice, InvoiceItem } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
@@ -161,13 +161,17 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
 
   const clientNameValue = form.watch("clientName") || "";
 
+  // Loose match: phone comparison ignores formatting (spaces, dashes, a
+  // leading 0 vs +250) so staff can type a client's number however it
+  // comes to mind and still find the existing record instead of
+  // accidentally creating a duplicate.
   const clientSuggestions = clientNameValue.trim().length > 0
     ? clients
-        .filter(
-          (c) =>
-            c.name.toLowerCase().includes(clientNameValue.toLowerCase()) ||
-            c.phone.includes(clientNameValue)
-        )
+        .filter((c) => {
+          if (c.name.toLowerCase().includes(clientNameValue.toLowerCase())) return true;
+          const qDigits = normalizePhoneForMatch(clientNameValue);
+          return qDigits.length > 0 && normalizePhoneForMatch(c.phone).includes(qDigits);
+        })
         .slice(0, 8)
     : [];
 
@@ -204,12 +208,15 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
       }
 
       // Same rule as everywhere else in the app: an invoice can't be
-      // marked completed unless payment is confirmed. On create, a
-      // non-UNPAID method means paid; on edit, the recorded paid flag is
-      // the source of truth since changing payment method here doesn't
-      // by itself mark it paid.
+      // marked completed unless the balance is fully settled. On create,
+      // a non-UNPAID method pays the total in full immediately; on edit,
+      // the invoice's recorded balance (from its payments so far) is the
+      // source of truth since changing payment method here doesn't by
+      // itself record a new payment.
       const effectivePaid = editingId
-        ? editingInvoice?.paid ?? false
+        ? editingInvoice
+          ? (editingInvoice.balanceDue ?? (editingInvoice.paid ? 0 : editingInvoice.total)) <= 0
+          : false
         : data.paymentMethod !== "UNPAID";
       if (data.status === "completed" && !effectivePaid) {
         toast({
@@ -267,8 +274,16 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
         }
       }
 
-      // Find or create client
-      let client = clients.find((c) => c.phone === data.clientPhone);
+      // Find or create client. Match loosely on phone (ignoring
+      // formatting) so e.g. "0788123456" typed for an existing client
+      // saved as "+250788123456" doesn't spawn a duplicate record.
+      const enteredPhoneDigits = normalizePhoneForMatch(data.clientPhone);
+      let client = clients.find(
+        (c) =>
+          c.phone === data.clientPhone ||
+          (enteredPhoneDigits.length > 0 &&
+            normalizePhoneForMatch(c.phone) === enteredPhoneDigits)
+      );
       if (!client) {
         console.log("Creating new client...");
         const newClient = await addClient({
@@ -277,6 +292,7 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
           address: data.clientAddress || "",
           visitCount: 0,
           rewardClaimed: false,
+          rewardsRedeemed: 0,
           lastVisit: new Date().toISOString(),
         });
         if (!newClient) {

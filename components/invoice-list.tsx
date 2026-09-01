@@ -515,11 +515,22 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                     className={`text-xs px-2 py-1 rounded border ${
                       invoice.paid
                         ? "border-green-300 text-green-700"
+                        : (invoice.amountPaid ?? 0) > 0
+                        ? "border-blue-300 text-blue-700"
                         : "border-yellow-300 text-yellow-700"
                     }`}
                     onClick={() => updateInvoicePaid(invoice.id, !invoice.paid)}
+                    title={
+                      !invoice.paid && (invoice.amountPaid ?? 0) > 0
+                        ? `Partially paid — ${formatCurrency(invoice.balanceDue ?? 0)} still due. Use the invoice's Payment section to record a partial payment.`
+                        : undefined
+                    }
                   >
-                    {invoice.paid ? "Paid" : "Unpaid"}
+                    {invoice.paid
+                      ? "Paid"
+                      : (invoice.amountPaid ?? 0) > 0
+                      ? "Partial"
+                      : "Unpaid"}
                   </button>
                 </div>
 
@@ -698,13 +709,19 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                                 className={`text-xs px-2 py-1 rounded border ${
                                   invoice.paid
                                     ? "border-green-300 text-green-700"
+                                    : (invoice.amountPaid ?? 0) > 0
+                                    ? "border-blue-300 text-blue-700"
                                     : "border-yellow-300 text-yellow-700"
                                 }`}
                                 onClick={() =>
                                   updateInvoicePaid(invoice.id, !invoice.paid)
                                 }
                               >
-                                {invoice.paid ? "Paid" : "Unpaid"}
+                                {invoice.paid
+                                  ? "Paid"
+                                  : (invoice.amountPaid ?? 0) > 0
+                                  ? "Partial"
+                                  : "Unpaid"}
                               </button>
                             </div>
                           </td>

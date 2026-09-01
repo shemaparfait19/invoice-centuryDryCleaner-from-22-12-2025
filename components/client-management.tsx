@@ -11,6 +11,7 @@ import {
   Search,
   Users,
   Award,
+  Gift,
   Plus,
   Edit,
   Trash2,
@@ -21,7 +22,12 @@ import {
   FileText,
 } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, normalizePhoneForMatch } from "@/lib/utils";
+import {
+  REWARD_MILESTONE,
+  getRewardsAvailable,
+  getVisitsUntilNextReward,
+} from "@/lib/loyalty";
 import { toast } from "@/hooks/use-toast";
 import {
   AlertDialog,
@@ -61,14 +67,38 @@ export function ClientManagement() {
     phone: "",
     address: "",
   });
-  const { clients, invoices, loading, addClient, updateClient, deleteClient } =
-    useSupabaseStore();
+  const {
+    clients,
+    invoices,
+    loading,
+    addClient,
+    updateClient,
+    deleteClient,
+    redeemClientReward,
+  } = useSupabaseStore();
+  const [redeemingId, setRedeemingId] = useState<string | null>(null);
 
-  const filteredClients = clients.filter(
-    (client) =>
-      client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      client.phone.includes(searchTerm)
-  );
+  const handleRedeemReward = async (client: Client) => {
+    setRedeemingId(client.id);
+    try {
+      await redeemClientReward(client.id);
+    } catch {
+      // Store already surfaced a toast.
+    } finally {
+      setRedeemingId(null);
+    }
+  };
+
+  // Loose search: name match ignores case, and phone match is tolerant of
+  // formatting — "0788123456", "+250788123456" and "250 788 123 456" all
+  // match the same client regardless of how the search term is typed.
+  const filteredClients = clients.filter((client) => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return true;
+    if (client.name.toLowerCase().includes(q)) return true;
+    const qDigits = normalizePhoneForMatch(searchTerm);
+    return qDigits.length > 0 && normalizePhoneForMatch(client.phone).includes(qDigits);
+  });
 
   const getClientStats = (clientId: string) => {
     const clientInvoices = invoices.filter((inv) => inv.client.id === clientId);
@@ -121,6 +151,7 @@ export function ClientManagement() {
           address: formData.address.trim() || "",
           visitCount: 0,
           rewardClaimed: false,
+          rewardsRedeemed: 0,
           lastVisit: new Date().toISOString(),
         });
         toast({ title: "Client created successfully!" });
@@ -322,6 +353,31 @@ export function ClientManagement() {
                     </div>
                   )}
                 </div>
+
+                {/* Loyalty: every REWARD_MILESTONE visits earns one reward. */}
+                {getRewardsAvailable(client) > 0 ? (
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t bg-purple-50 -mx-6 px-6 py-3">
+                    <span className="flex items-center gap-2 text-sm font-medium text-purple-800">
+                      <Gift className="h-4 w-4" />
+                      {getRewardsAvailable(client)} reward
+                      {getRewardsAvailable(client) > 1 ? "s" : ""} available
+                    </span>
+                    <Button
+                      size="sm"
+                      onClick={() => handleRedeemReward(client)}
+                      disabled={redeemingId === client.id}
+                      className="bg-purple-600 hover:bg-purple-700"
+                    >
+                      {redeemingId === client.id ? "Redeeming..." : "Redeem"}
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground pt-2 border-t">
+                    {getVisitsUntilNextReward(client)} more visit
+                    {getVisitsUntilNextReward(client) !== 1 ? "s" : ""} until next
+                    reward (every {REWARD_MILESTONE} visits)
+                  </p>
+                )}
 
                 <div className="flex items-center gap-2 pt-2">
                   <Users className="h-4 w-4 text-muted-foreground" />

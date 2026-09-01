@@ -93,6 +93,26 @@ export default function AdminGate() {
             </CardHeader>
           </Card>
         </Link>
+        <Link href="/admin/receivables">
+          <Card className="hover:bg-accent cursor-pointer">
+            <CardHeader>
+              <CardTitle>Accounts Receivable</CardTitle>
+              <CardDescription>
+                Who owes money, and how much.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </Link>
+        <Link href="/admin/duplicate-clients">
+          <Card className="hover:bg-accent cursor-pointer">
+            <CardHeader>
+              <CardTitle>Duplicate Clients</CardTitle>
+              <CardDescription>
+                Find and merge client records that are really the same person.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </Link>
       </div>
     </div>
   );

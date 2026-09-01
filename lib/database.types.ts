@@ -17,6 +17,7 @@ export interface Database {
           address: string | null;
           visit_count: number;
           reward_claimed: boolean;
+          rewards_redeemed: number;
           last_visit: string | null;
           created_at: string;
           updated_at: string;
@@ -28,6 +29,7 @@ export interface Database {
           address?: string | null;
           visit_count?: number;
           reward_claimed?: boolean;
+          rewards_redeemed?: number;
           last_visit?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -39,6 +41,7 @@ export interface Database {
           address?: string | null;
           visit_count?: number;
           reward_claimed?: boolean;
+          rewards_redeemed?: number;
           last_visit?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -162,6 +165,35 @@ export interface Database {
           covers_count?: number | null;
           created_at?: string;
           updated_at?: string;
+        };
+      };
+      payments: {
+        Row: {
+          id: string;
+          invoice_id: string;
+          amount: number;
+          method: string;
+          paid_by_name: string | null;
+          paid_by_phone: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          invoice_id: string;
+          amount: number;
+          method: string;
+          paid_by_name?: string | null;
+          paid_by_phone?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          invoice_id?: string;
+          amount?: number;
+          method?: string;
+          paid_by_name?: string | null;
+          paid_by_phone?: string | null;
+          created_at?: string;
         };
       };
       invoice_items: {

@@ -263,6 +263,24 @@ export const InvoicePrint = forwardRef<HTMLDivElement, InvoicePrintProps>(
                   {formatCurrency(invoice.total)}
                 </span>
               </div>
+              {invoice.balanceDue !== undefined && invoice.balanceDue > 0 && (
+                <div
+                  className="flex justify-between items-center mt-2 pt-2 border-t border-white/40"
+                  style={{ fontSize: "14px", fontWeight: "700" }}
+                >
+                  <span>Paid so far:</span>
+                  <span>{formatCurrency(invoice.amountPaid || 0)}</span>
+                </div>
+              )}
+              {invoice.balanceDue !== undefined && invoice.balanceDue > 0 && (
+                <div
+                  className="flex justify-between items-center"
+                  style={{ fontSize: "16px", fontWeight: "900" }}
+                >
+                  <span>BALANCE DUE:</span>
+                  <span>{formatCurrency(invoice.balanceDue)}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>

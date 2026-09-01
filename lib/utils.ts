@@ -19,9 +19,24 @@ export function generateInvoiceId(): string {
   const year = date.getFullYear().toString().slice(-2)
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
   const day = date.getDate().toString().padStart(2, '0')
-  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
-  
+  // 6 digits (1M possibilities/day) instead of 3 (1,000/day) — makes a
+  // same-day collision astronomically unlikely. addInvoice() also retries
+  // with a fresh id on the rare case Postgres still rejects it as a
+  // duplicate key, so a collision can never silently corrupt data.
+  const random = Math.floor(Math.random() * 1000000).toString().padStart(6, '0')
+
   return `INV${year}${month}${day}${random}`
+}
+
+// Normalizes a phone number down to its significant digits so different
+// formats of the same number match: "0788123456", "+250788123456", and
+// "250 788 123 456" all normalize to "788123456". Used for both loose
+// client search and duplicate-client detection.
+export function normalizePhoneForMatch(phone: string): string {
+  let digits = phone.replace(/\D/g, '')
+  if (digits.startsWith('250')) digits = digits.slice(3)
+  else if (digits.startsWith('0')) digits = digits.slice(1)
+  return digits
 }
 
 export function formatPhoneNumber(phone: string): string {
