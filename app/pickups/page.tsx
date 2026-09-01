@@ -36,31 +36,31 @@ const URGENCY_META: Record<
   overdue: {
     border: "border-l-red-500",
     bg: "bg-red-50",
-    badge: "bg-red-100 text-red-800 border-red-300",
+    badge: "bg-red-600 text-white border-transparent",
     label: "Overdue",
   },
   "due-soon": {
     border: "border-l-orange-500",
     bg: "bg-orange-50",
-    badge: "bg-orange-100 text-orange-800 border-orange-300",
+    badge: "bg-orange-600 text-white border-transparent",
     label: "Due Soon",
   },
   today: {
     border: "border-l-amber-400",
     bg: "bg-amber-50",
-    badge: "bg-amber-100 text-amber-800 border-amber-300",
+    badge: "bg-amber-500 text-white border-transparent",
     label: "Today",
   },
   upcoming: {
     border: "border-l-blue-400",
     bg: "bg-blue-50",
-    badge: "bg-blue-100 text-blue-800 border-blue-300",
+    badge: "bg-blue-600 text-white border-transparent",
     label: "Upcoming",
   },
   completed: {
     border: "border-l-green-500",
     bg: "bg-green-50",
-    badge: "bg-green-100 text-green-800 border-green-300",
+    badge: "bg-green-600 text-white border-transparent",
     label: "Picked Up",
   },
 };
@@ -146,12 +146,12 @@ export default function PickupSchedulePage() {
           </div>
           <div className="flex items-center gap-2">
             {overdueCount > 0 && (
-              <Badge className="bg-red-100 text-red-800 border-red-300">
+              <Badge className="bg-red-600 text-white border-transparent">
                 {overdueCount} overdue
               </Badge>
             )}
             {dueSoonCount > 0 && (
-              <Badge className="bg-orange-100 text-orange-800 border-orange-300">
+              <Badge className="bg-orange-600 text-white border-transparent">
                 {dueSoonCount} due soon
               </Badge>
             )}

@@ -297,7 +297,7 @@ export function ClientManagement() {
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg">{client.name}</CardTitle>
                   {client.visitCount >= 5 && (
-                    <Badge className="bg-yellow-100 text-yellow-800">
+                    <Badge className="bg-amber-500 text-white">
                       <Award className="h-3 w-3 mr-1" />
                       VIP
                     </Badge>

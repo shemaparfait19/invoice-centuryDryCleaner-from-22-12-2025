@@ -7,6 +7,7 @@ import { z } from "zod";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -771,13 +772,10 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
                 <div className="space-y-2">
                   {paymentLines.map((line) => (
                     <div key={line.id} className="flex gap-2 items-start">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
+                      <CurrencyInput
                         placeholder="Amount"
                         value={line.amount}
-                        onChange={(e) => updatePaymentLine(line.id, { amount: e.target.value })}
+                        onChange={(raw) => updatePaymentLine(line.id, { amount: raw })}
                         className="flex-1"
                       />
                       <Select

@@ -71,6 +71,22 @@ interface SupabaseStore {
   updateInvoice: (id: string, invoice: Partial<Invoice>) => Promise<void>;
   deleteInvoice: (id: string) => Promise<void>;
   addPayment: (invoiceId: string, amount: number, method: string) => Promise<void>;
+  // Batches several payment lines into one invoice in a single pass — used
+  // by the "Split Payment" option in the Record Payment dialog so entering
+  // part cash + part MoMo doesn't need reopening the dialog per line.
+  addPayments: (
+    invoiceId: string,
+    lines: { amount: number; method: string }[]
+  ) => Promise<void>;
+  // Corrects a mistake in an already-recorded payment (wrong amount or
+  // method) instead of only being able to delete it or wipe all payments.
+  updatePayment: (
+    invoiceId: string,
+    paymentId: string,
+    amount: number,
+    method: string
+  ) => Promise<void>;
+  deletePayment: (invoiceId: string, paymentId: string) => Promise<void>;
 
   // Pickup notifications
   getPickupNotifications: () => Invoice[];
@@ -2102,6 +2118,235 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
     } catch (error: any) {
       toast({
         title: "Error recording payment",
+        description: error.message,
+        variant: "destructive",
+      });
+      throw error;
+    }
+  },
+
+  addPayments: async (invoiceId, lines) => {
+    assertOnline(get);
+    const valid = lines.filter((l) => l.amount > 0);
+    if (valid.length === 0) {
+      toast({ title: "Enter at least one payment amount greater than zero", variant: "destructive" });
+      throw new Error("No valid payment lines");
+    }
+
+    const invoice = get().invoices.find((inv) => inv.id === invoiceId);
+    const currentBalance = invoice
+      ? invoice.balanceDue ?? (invoice.paid ? 0 : invoice.total)
+      : undefined;
+    const totalEntered = valid.reduce((sum, l) => sum + l.amount, 0);
+    if (currentBalance !== undefined && totalEntered > currentBalance + 1) {
+      toast({
+        title: "Amount exceeds balance due",
+        description: `Only ${currentBalance.toLocaleString()} is still owed on this invoice.`,
+        variant: "destructive",
+      });
+      throw new Error("Payment amount exceeds balance due");
+    }
+
+    const { currentUserName, currentUserPhone } = get();
+
+    try {
+      const { data, error } = await supabase
+        .from("payments")
+        .insert(
+          valid.map((l) => ({
+            invoice_id: invoiceId,
+            amount: l.amount,
+            method: l.method,
+            paid_by_name: currentUserName || null,
+            paid_by_phone: currentUserPhone || null,
+          }))
+        )
+        .select();
+
+      if (error) throw new Error(`Failed to record payment(s): ${error.message}`);
+
+      const newPayments = (data || []).map((p: any) => ({
+        id: p.id,
+        amount: parseFloat(p.amount),
+        method: p.method,
+        paidByName: p.paid_by_name || undefined,
+        paidByPhone: p.paid_by_phone || undefined,
+        createdAt: p.created_at,
+      }));
+
+      const lastMethod = valid[valid.length - 1].method;
+
+      set((state) => ({
+        invoices: state.invoices.map((inv) => {
+          if (inv.id !== invoiceId) return inv;
+          const payments = [...(inv.payments || []), ...newPayments];
+          const amountPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+          const balanceDue = Math.max(0, inv.total - amountPaid);
+          return {
+            ...inv,
+            payments,
+            amountPaid,
+            balanceDue,
+            paid: balanceDue <= 0,
+            paymentMethod: valid.length > 1 ? "SPLIT" : lastMethod,
+            updatedAt: new Date().toISOString(),
+          };
+        }),
+      }));
+
+      try {
+        await supabase.from("invoices").update({
+          paid: (currentBalance ?? totalEntered) - totalEntered <= 0,
+          payment_method: valid.length > 1 ? "SPLIT" : lastMethod,
+          updated_at: new Date().toISOString(),
+        }).eq("id", invoiceId);
+      } catch {}
+
+      try {
+        await supabase.from("audit_logs").insert({
+          action: "payment_recorded",
+          entity_type: "invoice",
+          entity_id: invoiceId,
+          actor_phone: currentUserPhone,
+          actor_name: currentUserName,
+          changes: { lines: valid },
+        });
+      } catch {}
+
+      toast({
+        title:
+          valid.length > 1
+            ? `${valid.length} payments totaling ${totalEntered.toLocaleString()} recorded`
+            : `Payment of ${totalEntered.toLocaleString()} recorded`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error recording payment",
+        description: error.message,
+        variant: "destructive",
+      });
+      throw error;
+    }
+  },
+
+  updatePayment: async (invoiceId, paymentId, amount, method) => {
+    assertOnline(get);
+    if (!(amount > 0)) {
+      toast({ title: "Enter a payment amount greater than zero", variant: "destructive" });
+      throw new Error("Payment amount must be greater than zero");
+    }
+
+    const invoice = get().invoices.find((inv) => inv.id === invoiceId);
+    const existing = invoice?.payments?.find((p) => p.id === paymentId);
+    const otherPaymentsTotal =
+      (invoice?.payments || [])
+        .filter((p) => p.id !== paymentId)
+        .reduce((sum, p) => sum + p.amount, 0);
+    if (invoice && otherPaymentsTotal + amount > invoice.total + 1) {
+      toast({
+        title: "Amount exceeds invoice total",
+        description: `That would put total payments above ${invoice.total.toLocaleString()}.`,
+        variant: "destructive",
+      });
+      throw new Error("Payment amount exceeds invoice total");
+    }
+
+    try {
+      const { error } = await supabase
+        .from("payments")
+        .update({ amount, method })
+        .eq("id", paymentId);
+      if (error) throw new Error(`Failed to update payment: ${error.message}`);
+
+      set((state) => ({
+        invoices: state.invoices.map((inv) => {
+          if (inv.id !== invoiceId) return inv;
+          const payments = (inv.payments || []).map((p) =>
+            p.id === paymentId ? { ...p, amount, method } : p
+          );
+          const amountPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+          const balanceDue = Math.max(0, inv.total - amountPaid);
+          return { ...inv, payments, amountPaid, balanceDue, paid: balanceDue <= 0 };
+        }),
+      }));
+
+      try {
+        const { error: invError } = await supabase
+          .from("invoices")
+          .update({
+            paid: otherPaymentsTotal + amount >= (invoice?.total ?? amount) - 0.01,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", invoiceId);
+        if (invError) throw invError;
+      } catch {}
+
+      try {
+        const { currentUserPhone, currentUserName } = get();
+        await supabase.from("audit_logs").insert({
+          action: "payment_updated",
+          entity_type: "invoice",
+          entity_id: invoiceId,
+          actor_phone: currentUserPhone,
+          actor_name: currentUserName,
+          changes: { paymentId, from: existing, to: { amount, method } },
+        });
+      } catch {}
+
+      toast({ title: "Payment updated" });
+    } catch (error: any) {
+      toast({
+        title: "Error updating payment",
+        description: error.message,
+        variant: "destructive",
+      });
+      throw error;
+    }
+  },
+
+  deletePayment: async (invoiceId, paymentId) => {
+    assertOnline(get);
+    try {
+      const { error } = await supabase.from("payments").delete().eq("id", paymentId);
+      if (error) throw new Error(`Failed to delete payment: ${error.message}`);
+
+      let newAmountPaid = 0;
+      let newTotal = 0;
+      set((state) => ({
+        invoices: state.invoices.map((inv) => {
+          if (inv.id !== invoiceId) return inv;
+          const payments = (inv.payments || []).filter((p) => p.id !== paymentId);
+          const amountPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+          const balanceDue = Math.max(0, inv.total - amountPaid);
+          newAmountPaid = amountPaid;
+          newTotal = inv.total;
+          return { ...inv, payments, amountPaid, balanceDue, paid: balanceDue <= 0 };
+        }),
+      }));
+
+      try {
+        await supabase.from("invoices").update({
+          paid: newTotal > 0 ? newAmountPaid >= newTotal - 0.01 : false,
+          updated_at: new Date().toISOString(),
+        }).eq("id", invoiceId);
+      } catch {}
+
+      try {
+        const { currentUserPhone, currentUserName } = get();
+        await supabase.from("audit_logs").insert({
+          action: "payment_deleted",
+          entity_type: "invoice",
+          entity_id: invoiceId,
+          actor_phone: currentUserPhone,
+          actor_name: currentUserName,
+          changes: { paymentId },
+        });
+      } catch {}
+
+      toast({ title: "Payment removed" });
+    } catch (error: any) {
+      toast({
+        title: "Error deleting payment",
         description: error.message,
         variant: "destructive",
       });

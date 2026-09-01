@@ -241,10 +241,10 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
                                 <Badge
                                   className={
                                     invoice.status === "completed"
-                                      ? "bg-green-100 text-green-800"
+                                      ? "bg-green-600 text-white"
                                       : invoice.status === "cancelled"
-                                      ? "bg-red-100 text-red-800"
-                                      : "bg-yellow-100 text-yellow-800"
+                                      ? "bg-red-600 text-white"
+                                      : "bg-amber-600 text-white"
                                   }
                                 >
                                   {invoice.status}
@@ -302,10 +302,10 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
                           <Badge
                             className={
                               invoice.status === "completed"
-                                ? "bg-green-100 text-green-800"
+                                ? "bg-green-600 text-white"
                                 : invoice.status === "cancelled"
-                                ? "bg-red-100 text-red-800"
-                                : "bg-yellow-100 text-yellow-800"
+                                ? "bg-red-600 text-white"
+                                : "bg-amber-600 text-white"
                             }
                           >
                             {invoice.status}

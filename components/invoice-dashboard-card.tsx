@@ -66,7 +66,7 @@ export function InvoiceDashboardCard({
           <div className="flex items-center gap-2">
             {getStatusIcon(invoice.status)}
             {isPickupDue() && (
-              <Badge className="bg-orange-100 text-orange-800 text-xs">
+              <Badge className="bg-orange-600 text-white text-xs">
                 Pickup Due
               </Badge>
             )}

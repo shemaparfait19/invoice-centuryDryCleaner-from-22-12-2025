@@ -590,7 +590,7 @@ export function AdvancedReports() {
                 <div className="flex items-center justify-between">
                   <span>Completed</span>
                   <div className="flex items-center gap-2">
-                    <Badge className="bg-green-100 text-green-800">
+                    <Badge className="bg-green-600 text-white">
                       {stats.completedInvoices}
                     </Badge>
                     <span className="text-sm text-muted-foreground">
@@ -601,7 +601,7 @@ export function AdvancedReports() {
                 <div className="flex items-center justify-between">
                   <span>Pending</span>
                   <div className="flex items-center gap-2">
-                    <Badge className="bg-yellow-100 text-yellow-800">
+                    <Badge className="bg-amber-600 text-white">
                       {stats.pendingInvoices}
                     </Badge>
                     <span className="text-sm text-muted-foreground">
@@ -611,7 +611,7 @@ export function AdvancedReports() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span>Cancelled</span>
-                  <Badge className="bg-red-100 text-red-800">
+                  <Badge className="bg-red-600 text-white">
                     {stats.cancelledInvoices}
                   </Badge>
                 </div>

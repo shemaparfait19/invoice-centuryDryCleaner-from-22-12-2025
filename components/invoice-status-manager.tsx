@@ -24,7 +24,7 @@ import {
 import { CheckCircle, Clock, XCircle, AlertTriangle, RefreshCw } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency, formatTime } from "@/lib/utils";
-import { PaymentStatusBadge, RecordPaymentButton, PAYMENT_METHOD_LABELS } from "@/components/payment-status";
+import { PaymentStatusBadge, RecordPaymentButton, PaymentHistoryRow } from "@/components/payment-status";
 import type { Invoice } from "@/lib/types";
 
 interface InvoiceStatusManagerProps {
@@ -64,13 +64,13 @@ export function InvoiceStatusManager({
   const getStatusColor = (status: string) => {
     switch (status) {
       case "completed":
-        return "bg-green-100 text-green-800 border-green-200";
+        return "bg-green-600 text-white border-transparent";
       case "pending":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200";
+        return "bg-amber-600 text-white border-transparent";
       case "cancelled":
-        return "bg-red-100 text-red-800 border-red-200";
+        return "bg-red-600 text-white border-transparent";
       default:
-        return "bg-gray-100 text-gray-800 border-gray-200";
+        return "bg-gray-600 text-white border-transparent";
     }
   };
 
@@ -312,21 +312,7 @@ export function InvoiceStatusManager({
               <p className="text-xs font-medium text-muted-foreground">Payment history</p>
               <div className="space-y-1">
                 {payments.map((p) => (
-                  <div
-                    key={p.id}
-                    className="flex items-center justify-between text-xs bg-muted/50 rounded px-2 py-1.5"
-                  >
-                    <span>
-                      {PAYMENT_METHOD_LABELS[p.method] || p.method}
-                      {p.paidByName ? ` · ${p.paidByName}` : ""}
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <span className="font-semibold">{formatCurrency(p.amount)}</span>
-                      <span className="text-muted-foreground">
-                        {new Date(p.createdAt).toLocaleDateString()}
-                      </span>
-                    </span>
-                  </div>
+                  <PaymentHistoryRow key={p.id} invoice={invoice} payment={p} />
                 ))}
               </div>
             </div>
