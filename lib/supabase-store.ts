@@ -1120,10 +1120,14 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         .select(`*, client:clients(*), invoice_items(*), payments(*)`);
 
       if (filter === "completed") {
-        query = query
-          .eq("status", "completed")
-          .order("completed_at", { ascending: false, nullsFirst: false })
-          .limit(limit);
+        // completed_at only exists once scripts/add-completed-at.sql has
+        // been run — fall back to updated_at (the old, less precise
+        // behavior) rather than a hard 400 error until then.
+        const hasCompletedAtCol = await checkCompletedAtColumn();
+        query = query.eq("status", "completed");
+        query = hasCompletedAtCol
+          ? query.order("completed_at", { ascending: false, nullsFirst: false }).limit(limit)
+          : query.order("updated_at", { ascending: false }).limit(limit);
       } else {
         const candidatePoolSize = Math.min(Math.max(limit * 4, 200), 1000);
         query = query
