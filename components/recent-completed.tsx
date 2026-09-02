@@ -27,6 +27,22 @@ type LimitOption = (typeof LIMIT_OPTIONS)[number];
 const GROUP_ORDER = ["Today", "Yesterday", "This Week", "Earlier"];
 const SHOW_TOTAL_FOR = new Set(["Today", "Yesterday"]);
 
+// The one timestamp that actually means "when this invoice became
+// completed/paid" — never invoice.updatedAt, which a DB trigger bumps on
+// ANY update to the row (including unrelated ones, like a client merge
+// reassigning client_id), so it can silently make old invoices look
+// freshly touched.
+function getRelevantTimestamp(invoice: Invoice, type: "completed" | "paid"): string {
+  if (type === "completed") {
+    return invoice.completedAt ?? invoice.updatedAt ?? invoice.createdAt;
+  }
+  const payments = invoice.payments || [];
+  if (payments.length > 0) {
+    return payments.reduce((latest, p) => (p.createdAt > latest ? p.createdAt : latest), payments[0].createdAt);
+  }
+  return invoice.updatedAt ?? invoice.createdAt;
+}
+
 function getDateGroup(dateStr: string): string {
   const date = new Date(dateStr);
   const now = new Date();
@@ -110,7 +126,7 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
 
   const groups: Record<string, Invoice[]> = {};
   for (const inv of results) {
-    const label = getDateGroup(inv.updatedAt ?? inv.createdAt);
+    const label = getDateGroup(getRelevantTimestamp(inv, type));
     if (!groups[label]) groups[label] = [];
     groups[label].push(inv);
   }
@@ -128,8 +144,8 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
   const spinnerColor = isCompleted ? "border-green-600" : "border-blue-600";
   const title = isCompleted ? "Completed Invoices" : "Paid Invoices";
   const description = isCompleted
-    ? "Invoices with status set to Completed — ordered by most recently updated."
-    : "Invoices marked as Paid — ordered by most recently updated.";
+    ? "Invoices with status set to Completed — ordered by when they were completed."
+    : "Invoices marked as Paid — ordered by when they were paid.";
   const emptyText = isCompleted ? "No completed invoices yet." : "No paid invoices yet.";
 
   return (
@@ -224,7 +240,7 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
                                 <p className="text-xs text-muted-foreground">{invoice.client.phone}</p>
                               </td>
                               <td className="p-3 text-sm text-muted-foreground">
-                                {new Date(invoice.updatedAt ?? invoice.createdAt).toLocaleString()}
+                                {new Date(getRelevantTimestamp(invoice, type)).toLocaleString()}
                               </td>
                               <td className="p-3">
                                 {getActor(invoice) ? (
@@ -313,7 +329,7 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
                         </div>
                       </div>
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{new Date(invoice.updatedAt ?? invoice.createdAt).toLocaleString()}</span>
+                        <span>{new Date(getRelevantTimestamp(invoice, type)).toLocaleString()}</span>
                         {getPaymentBadge(invoice)}
                       </div>
                       {getActor(invoice) && (

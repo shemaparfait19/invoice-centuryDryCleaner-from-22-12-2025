@@ -59,6 +59,10 @@ export interface Invoice {
   createdByPhone?: string;
   completedByName?: string;
   completedByPhone?: string;
+  // Set only at the moment status actually becomes "completed" — unlike
+  // updatedAt, which a DB trigger bumps on ANY update (including unrelated
+  // ones like a client merge), so it can't be trusted for "when completed".
+  completedAt?: string;
   paidByName?: string;
   paidByPhone?: string;
   createdAt: string;

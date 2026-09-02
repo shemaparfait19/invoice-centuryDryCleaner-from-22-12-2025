@@ -138,6 +138,21 @@ async function checkActorColumns(): Promise<boolean> {
   return actorColumnsReady;
 }
 
+// Cached probe: has scripts/add-completed-at.sql been run yet? Same
+// backward-compatible pattern as checkActorColumns.
+let completedAtColumnReady: boolean | null = null;
+
+async function checkCompletedAtColumn(): Promise<boolean> {
+  if (completedAtColumnReady !== null) return completedAtColumnReady;
+  try {
+    const { error } = await supabase.from("invoices").select("completed_at").limit(1);
+    completedAtColumnReady = !error;
+  } catch {
+    completedAtColumnReady = false;
+  }
+  return completedAtColumnReady;
+}
+
 export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
   invoices: [],
   clients: [],
@@ -794,6 +809,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             createdByPhone: invoice.created_by_phone || undefined,
             completedByName: invoice.completed_by_name || undefined,
             completedByPhone: invoice.completed_by_phone || undefined,
+            completedAt: invoice.completed_at || undefined,
             paidByName: invoice.paid_by_name || undefined,
             paidByPhone: invoice.paid_by_phone || undefined,
             createdAt: invoice.created_at,
@@ -913,6 +929,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             createdByPhone: invoice.created_by_phone || undefined,
             completedByName: invoice.completed_by_name || undefined,
             completedByPhone: invoice.completed_by_phone || undefined,
+            completedAt: invoice.completed_at || undefined,
             paidByName: invoice.paid_by_name || undefined,
             paidByPhone: invoice.paid_by_phone || undefined,
             createdAt: invoice.created_at,
@@ -1061,6 +1078,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           createdByPhone: invoice.created_by_phone || undefined,
           completedByName: invoice.completed_by_name || undefined,
           completedByPhone: invoice.completed_by_phone || undefined,
+          completedAt: invoice.completed_at || undefined,
           paidByName: invoice.paid_by_name || undefined,
           paidByPhone: invoice.paid_by_phone || undefined,
           createdAt: invoice.created_at,
@@ -1089,19 +1107,32 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
 
   fetchRecentCompleted: async (filter: "completed" | "paid", limit: number) => {
     try {
+      // updated_at is bumped by a DB trigger on ANY change to the row —
+      // including unrelated ones like a client merge reassigning
+      // client_id — so it can't be trusted as "when this was
+      // completed/paid". For "completed" we now have a precise
+      // completed_at column to order by instead. For "paid" there's no
+      // single trustworthy invoice-level column (it's the max of the
+      // payments table), so fetch a wider candidate pool by updated_at
+      // and re-rank by actual payment recency below.
       let query = supabase
         .from("invoices")
         .select(`*, client:clients(*), invoice_items(*), payments(*)`);
 
       if (filter === "completed") {
-        query = query.eq("status", "completed");
+        query = query
+          .eq("status", "completed")
+          .order("completed_at", { ascending: false, nullsFirst: false })
+          .limit(limit);
       } else {
-        query = query.eq("paid", true);
+        const candidatePoolSize = Math.min(Math.max(limit * 4, 200), 1000);
+        query = query
+          .eq("paid", true)
+          .order("updated_at", { ascending: false })
+          .limit(candidatePoolSize);
       }
 
-      const { data, error } = await query
-        .order("updated_at", { ascending: false })
-        .limit(limit);
+      const { data, error } = await query;
 
       if (error) throw new Error(error.message);
       if (!data || data.length === 0) return [];
@@ -1159,6 +1190,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             createdByPhone: invoice.created_by_phone || undefined,
             completedByName: invoice.completed_by_name || undefined,
             completedByPhone: invoice.completed_by_phone || undefined,
+            completedAt: invoice.completed_at || undefined,
             paidByName: invoice.paid_by_name || undefined,
             paidByPhone: invoice.paid_by_phone || undefined,
             createdAt: invoice.created_at,
@@ -1167,8 +1199,25 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         })
         .filter(Boolean) as Invoice[];
 
+      // For "paid", the candidate pool was ordered by the untrustworthy
+      // updated_at — re-rank by each invoice's actual latest payment
+      // timestamp (falls back to updatedAt only if it somehow has none)
+      // and trim down to what was actually asked for.
+      const rankedInvoices =
+        filter === "paid"
+          ? [...invoices]
+              .sort((a, b) => {
+                const latest = (inv: Invoice) =>
+                  (inv.payments || []).length > 0
+                    ? Math.max(...inv.payments!.map((p) => new Date(p.createdAt).getTime()))
+                    : new Date(inv.updatedAt).getTime();
+                return latest(b) - latest(a);
+              })
+              .slice(0, limit)
+          : invoices;
+
       // Enrich with actor names from audit_logs — works immediately with no migration
-      const invoiceIds = invoices.map((inv) => inv.id);
+      const invoiceIds = rankedInvoices.map((inv) => inv.id);
       const { data: logs } = await supabase
         .from("audit_logs")
         .select("entity_id, actor_name, action, changes")
@@ -1198,7 +1247,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         }
       }
 
-      return invoices.map((inv) => ({
+      return rankedInvoices.map((inv) => ({
         ...inv,
         completedByName: completedActorMap.get(inv.id) || inv.completedByName,
         // For paid invoices: prefer payment_update log → fall back to whoever
@@ -1299,6 +1348,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
           createdByPhone: invoice.created_by_phone || undefined,
           completedByName: invoice.completed_by_name || undefined,
           completedByPhone: invoice.completed_by_phone || undefined,
+          completedAt: invoice.completed_at || undefined,
           paidByName: invoice.paid_by_name || undefined,
           paidByPhone: invoice.paid_by_phone || undefined,
           createdAt: invoice.created_at,
@@ -1853,6 +1903,8 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
       const { currentUserName, currentUserPhone } = get();
       const isCompleting = status === "completed";
       const hasActorCols = await checkActorColumns();
+      const hasCompletedAtCol = await checkCompletedAtColumn();
+      const completedAtIso = new Date().toISOString();
 
       const statusPayload: Record<string, any> = {
         status,
@@ -1860,6 +1912,12 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         ...(hasActorCols && {
           completed_by_name: isCompleting ? (currentUserName || null) : null,
           completed_by_phone: isCompleting ? (currentUserPhone || null) : null,
+        }),
+        // Precise "when this became completed" — unlike updated_at, a DB
+        // trigger doesn't bump this on unrelated edits, so date-grouped
+        // views (Recent Completed) can trust it.
+        ...(hasCompletedAtCol && {
+          completed_at: isCompleting ? completedAtIso : null,
         }),
       };
 
@@ -1879,6 +1937,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
                 updatedAt: new Date().toISOString(),
                 completedByName: isCompleting ? (currentUserName || undefined) : undefined,
                 completedByPhone: isCompleting ? (currentUserPhone || undefined) : undefined,
+                completedAt: isCompleting ? completedAtIso : undefined,
               }
             : invoice
         ),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,8 +20,10 @@ import {
   Calendar,
   DollarSign,
   FileText,
+  RefreshCw,
 } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
+import { supabase } from "@/lib/supabase";
 import { formatCurrency, normalizePhoneForMatch } from "@/lib/utils";
 import {
   REWARD_MILESTONE,
@@ -69,7 +71,6 @@ export function ClientManagement() {
   });
   const {
     clients,
-    invoices,
     loading,
     addClient,
     updateClient,
@@ -77,6 +78,65 @@ export function ClientManagement() {
     redeemClientReward,
   } = useSupabaseStore();
   const [redeemingId, setRedeemingId] = useState<string | null>(null);
+
+  // Per-client invoice stats, fetched directly and completely from
+  // Supabase — the store's `invoices` is only a paginated slice of the
+  // most recent invoices, so deriving stats from it silently showed
+  // wrong (usually zero) numbers for any client whose invoices were
+  // older than that window, until you opened their full Details page.
+  type ClientStats = {
+    totalInvoices: number;
+    totalSpent: number;
+    completedInvoices: number;
+    lastInvoice: Date | null;
+  };
+  const [statsById, setStatsById] = useState<Record<string, ClientStats>>({});
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  const loadClientStats = async () => {
+    setStatsLoading(true);
+    try {
+      const pageSize = 1000;
+      const allRows: any[] = [];
+      let page = 0;
+      for (;;) {
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+        const { data, error } = await supabase
+          .from("invoices")
+          .select("client_id, total, status, created_at")
+          .range(from, to);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allRows.push(...data);
+        if (data.length < pageSize) break;
+        page++;
+      }
+
+      const byClient: Record<string, ClientStats> = {};
+      for (const row of allRows) {
+        const key = row.client_id;
+        if (!byClient[key]) {
+          byClient[key] = { totalInvoices: 0, totalSpent: 0, completedInvoices: 0, lastInvoice: null };
+        }
+        const entry = byClient[key];
+        entry.totalInvoices += 1;
+        entry.totalSpent += parseFloat(row.total) || 0;
+        if (row.status === "completed") entry.completedInvoices += 1;
+        const createdAt = new Date(row.created_at);
+        if (!entry.lastInvoice || createdAt > entry.lastInvoice) entry.lastInvoice = createdAt;
+      }
+      setStatsById(byClient);
+    } catch (error) {
+      console.error("Error loading client invoice stats:", error);
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadClientStats();
+  }, []);
 
   const handleRedeemReward = async (client: Client) => {
     setRedeemingId(client.id);
@@ -100,29 +160,13 @@ export function ClientManagement() {
     return qDigits.length > 0 && normalizePhoneForMatch(client.phone).includes(qDigits);
   });
 
-  const getClientStats = (clientId: string) => {
-    const clientInvoices = invoices.filter((inv) => inv.client.id === clientId);
-    const totalSpent = clientInvoices.reduce((sum, inv) => sum + inv.total, 0);
-    const completedInvoices = clientInvoices.filter(
-      (inv) => inv.status === "completed"
-    ).length;
-
-    return {
-      totalInvoices: clientInvoices.length,
-      totalSpent,
-      completedInvoices,
-      lastInvoice:
-        clientInvoices.length > 0
-          ? new Date(
-              Math.max(
-                ...clientInvoices.map((inv) =>
-                  new Date(inv.createdAt).getTime()
-                )
-              )
-            )
-          : null,
+  const getClientStats = (clientId: string): ClientStats =>
+    statsById[clientId] ?? {
+      totalInvoices: 0,
+      totalSpent: 0,
+      completedInvoices: 0,
+      lastInvoice: null,
     };
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -202,7 +246,18 @@ export function ClientManagement() {
   return (
     <div className="space-y-4 sm:space-y-6 p-4">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
-        <h1 className="text-xl sm:text-2xl font-bold">Client Management</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl sm:text-2xl font-bold">Client Management</h1>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadClientStats}
+            disabled={statsLoading}
+            title="Refresh invoice stats"
+          >
+            <RefreshCw className={`h-4 w-4 ${statsLoading ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
         <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
@@ -222,6 +277,11 @@ export function ClientManagement() {
           </Button>
         </div>
       </div>
+      {statsLoading && (
+        <p className="text-xs text-muted-foreground -mt-2">
+          Loading invoice stats for all clients…
+        </p>
+      )}
 
       {/* Client Form Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>

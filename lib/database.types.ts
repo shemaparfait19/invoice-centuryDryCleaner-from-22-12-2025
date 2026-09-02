@@ -123,6 +123,7 @@ export interface Database {
           hangers_count: number | null;
           covers_brought: boolean | null;
           covers_count: number | null;
+          completed_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -143,6 +144,7 @@ export interface Database {
           hangers_count?: number | null;
           covers_brought?: boolean | null;
           covers_count?: number | null;
+          completed_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -163,6 +165,7 @@ export interface Database {
           hangers_count?: number | null;
           covers_brought?: boolean | null;
           covers_count?: number | null;
+          completed_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
