@@ -17,7 +17,7 @@ import { formatCurrency } from "@/lib/utils";
 import { generatePDF, sharePDF, shareViaWhatsApp } from "@/lib/pdf-utils";
 import { InvoicePrint } from "@/components/invoice-print";
 import { InvoiceStatusManager } from "@/components/invoice-status-manager";
-import { PaymentStatusBadge, RecordPaymentButton } from "@/components/payment-status";
+import { PaymentStatusBadge, RecordPaymentButton, PaymentMethodLabel } from "@/components/payment-status";
 import { toast } from "@/hooks/use-toast";
 import type { Invoice } from "@/lib/types";
 
@@ -131,7 +131,12 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
     groups[label].push(inv);
   }
 
-  const getPaymentBadge = (invoice: Invoice) => <PaymentStatusBadge invoice={invoice} />;
+  const getPaymentBadge = (invoice: Invoice) => (
+    <div className="flex items-center gap-2">
+      <PaymentStatusBadge invoice={invoice} />
+      <PaymentMethodLabel invoice={invoice} />
+    </div>
+  );
 
   const getActor = (invoice: Invoice) => {
     if (type === "completed") return invoice.completedByName ?? invoice.completedByPhone ?? null;

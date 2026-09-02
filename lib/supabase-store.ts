@@ -1109,36 +1109,67 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
     try {
       // updated_at is bumped by a DB trigger on ANY change to the row —
       // including unrelated ones like a client merge reassigning
-      // client_id — so it can't be trusted as "when this was
-      // completed/paid". For "completed" we now have a precise
-      // completed_at column to order by instead. For "paid" there's no
-      // single trustworthy invoice-level column (it's the max of the
-      // payments table), so fetch a wider candidate pool by updated_at
-      // and re-rank by actual payment recency below.
-      let query = supabase
-        .from("invoices")
-        .select(`*, client:clients(*), invoice_items(*), payments(*)`);
+      // client_id, or even a one-off data-fix migration that updates
+      // every completed invoice at once — so it can never be trusted as
+      // "when this was completed/paid", not even just to pick which rows
+      // to look at before a smarter re-rank. A bulk touch like that can
+      // tie thousands of rows at the same instant and bury genuinely
+      // recent ones under the tie-break order.
+      const selectJoined = `*, client:clients(*), invoice_items(*), payments(*)`;
+      let data: any[] | null = null;
 
       if (filter === "completed") {
         // completed_at only exists once scripts/add-completed-at.sql has
         // been run — fall back to updated_at (the old, less precise
-        // behavior) rather than a hard 400 error until then.
+        // behavior) rather than a hard 400 error until then. It's set
+        // exactly once, at the moment of completion, by updateInvoiceStatus
+        // — nothing bulk-touches it except that migration itself (which
+        // is fine: it sets it to the right value).
         const hasCompletedAtCol = await checkCompletedAtColumn();
-        query = query.eq("status", "completed");
+        let query = supabase.from("invoices").select(selectJoined).eq("status", "completed");
         query = hasCompletedAtCol
           ? query.order("completed_at", { ascending: false, nullsFirst: false }).limit(limit)
           : query.order("updated_at", { ascending: false }).limit(limit);
+        const { data: rows, error } = await query;
+        if (error) throw new Error(error.message);
+        data = rows;
       } else {
-        const candidatePoolSize = Math.min(Math.max(limit * 4, 200), 1000);
-        query = query
-          .eq("paid", true)
-          .order("updated_at", { ascending: false })
-          .limit(candidatePoolSize);
+        // Query payments directly instead — ordered by its own created_at,
+        // which nothing bulk-touches — then fetch the (deduped) invoices
+        // those most-recent payments belong to.
+        const { data: recentPayments, error: paymentsError } = await supabase
+          .from("payments")
+          .select("invoice_id, created_at")
+          .order("created_at", { ascending: false })
+          .limit(Math.min(Math.max(limit * 5, 250), 2000));
+
+        if (paymentsError) throw new Error(paymentsError.message);
+
+        const orderedInvoiceIds: string[] = [];
+        const seen = new Set<string>();
+        for (const p of recentPayments || []) {
+          if (seen.has(p.invoice_id)) continue;
+          seen.add(p.invoice_id);
+          orderedInvoiceIds.push(p.invoice_id);
+          if (orderedInvoiceIds.length >= limit) break;
+        }
+
+        if (orderedInvoiceIds.length === 0) return [];
+
+        const { data: rows, error } = await supabase
+          .from("invoices")
+          .select(selectJoined)
+          .in("id", orderedInvoiceIds);
+        if (error) throw new Error(error.message);
+
+        // .in() doesn't preserve the id order given to it — re-sort to
+        // match the payments-based ranking computed above.
+        const orderIndex = new Map(orderedInvoiceIds.map((id, i) => [id, i]));
+        data = (rows || []).sort(
+          (a: any, b: any) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0)
+        );
       }
 
-      const { data, error } = await query;
-
-      if (error) throw new Error(error.message);
       if (!data || data.length === 0) return [];
 
       const invoices = data
@@ -1203,22 +1234,9 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
         })
         .filter(Boolean) as Invoice[];
 
-      // For "paid", the candidate pool was ordered by the untrustworthy
-      // updated_at — re-rank by each invoice's actual latest payment
-      // timestamp (falls back to updatedAt only if it somehow has none)
-      // and trim down to what was actually asked for.
-      const rankedInvoices =
-        filter === "paid"
-          ? [...invoices]
-              .sort((a, b) => {
-                const latest = (inv: Invoice) =>
-                  (inv.payments || []).length > 0
-                    ? Math.max(...inv.payments!.map((p) => new Date(p.createdAt).getTime()))
-                    : new Date(inv.updatedAt).getTime();
-                return latest(b) - latest(a);
-              })
-              .slice(0, limit)
-          : invoices;
+      // Already in the right order — "completed" came straight from the
+      // DB query, "paid" was pre-sorted by actual payment recency above.
+      const rankedInvoices = invoices;
 
       // Enrich with actor names from audit_logs — works immediately with no migration
       const invoiceIds = rankedInvoices.map((inv) => inv.id);

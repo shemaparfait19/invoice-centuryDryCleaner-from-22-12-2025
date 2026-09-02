@@ -55,7 +55,7 @@ import { InvoicePrint } from "@/components/invoice-print";
 import { toast } from "@/hooks/use-toast";
 import type { Invoice } from "@/lib/types";
 import { InvoiceStatusManager } from "@/components/invoice-status-manager";
-import { PaymentStatusBadge, RecordPaymentButton } from "@/components/payment-status";
+import { PaymentStatusBadge, RecordPaymentButton, PaymentMethodLabel } from "@/components/payment-status";
 
 interface InvoiceListProps {
   onEdit: (invoiceId: string) => void;
@@ -493,6 +493,7 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
 
                 <div className="flex flex-wrap items-center gap-2">
                   <PaymentStatusBadge invoice={invoice} className="text-xs" />
+                  <PaymentMethodLabel invoice={invoice} className="text-xs" />
                   <RecordPaymentButton invoice={invoice} size="sm" />
                 </div>
 
@@ -647,6 +648,7 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                           <td className="p-4">
                             <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                               <PaymentStatusBadge invoice={invoice} />
+                              <PaymentMethodLabel invoice={invoice} />
                               <RecordPaymentButton invoice={invoice} size="sm" />
                             </div>
                           </td>

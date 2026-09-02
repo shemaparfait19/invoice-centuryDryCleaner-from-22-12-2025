@@ -69,6 +69,23 @@ export function PaymentStatusBadge({
   return <Badge className={`bg-orange-500 text-white hover:bg-orange-500 ${className}`}>Unpaid</Badge>;
 }
 
+// The actual method(s) money came in on — derived from the real payment
+// records, not just the invoice's single paymentMethod label (which reads
+// "SPLIT" when more than one was used and doesn't say which).
+export function getPaymentMethodsLabel(invoice: Invoice): string {
+  const methods = Array.from(new Set((invoice.payments || []).map((p) => p.method)));
+  if (methods.length === 0) {
+    return invoice.paymentMethod && invoice.paymentMethod !== "UNPAID"
+      ? PAYMENT_METHOD_LABELS[invoice.paymentMethod] || invoice.paymentMethod
+      : "—";
+  }
+  return methods.map((m) => PAYMENT_METHOD_LABELS[m] || m).join(" + ");
+}
+
+export function PaymentMethodLabel({ invoice, className = "" }: { invoice: Invoice; className?: string }) {
+  return <span className={`text-sm text-muted-foreground ${className}`}>{getPaymentMethodsLabel(invoice)}</span>;
+}
+
 type PaymentLine = { id: string; amount: string; method: string };
 
 // Records one or more payments toward an invoice in a single dialog — hit

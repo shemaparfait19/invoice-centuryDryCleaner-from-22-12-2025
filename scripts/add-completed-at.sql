@@ -8,9 +8,27 @@
 ALTER TABLE public.invoices
   ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
 
--- Best-effort backfill for invoices already completed before this column
--- existed — updated_at is the closest available guess for those, even
--- though (per the bug above) it may already be wrong for some of them.
-UPDATE public.invoices
-SET completed_at = updated_at
-WHERE status = 'completed' AND completed_at IS NULL;
+-- Backfill/repair for every completed invoice, in one unconditional pass —
+-- always recomputes completed_at rather than only filling NULLs, because
+-- an earlier flawed version of this script (fixed here) already wrote a
+-- wrong non-null value from updated_at into every completed invoice, and
+-- a NULL-only fallback would never touch those again. audit_logs is
+-- append-only and never touched by the invoices trigger, so its record of
+-- the status_update to "completed" is the trustworthy source where one
+-- exists (an invoice transitioned to completed via the app); invoices
+-- entered directly as "completed" (no such log) fall back to created_at —
+-- never updated_at, which a client merge or any unrelated edit can bump.
+UPDATE public.invoices i
+SET completed_at = COALESCE(
+  (
+    SELECT a.created_at
+    FROM public.audit_logs a
+    WHERE a.entity_id = i.id
+      AND a.action = 'status_update'
+      AND a.changes->>'status' = 'completed'
+    ORDER BY a.created_at DESC
+    LIMIT 1
+  ),
+  i.created_at
+)
+WHERE i.status = 'completed';
