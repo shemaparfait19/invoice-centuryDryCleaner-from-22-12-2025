@@ -931,6 +931,27 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
             </div>
           </CardContent>
         </Card>
+
+        {/* Mirrors the button bar at the top so saving doesn't require
+            scrolling back up after filling out the whole form. */}
+        <div className="flex flex-col sm:flex-row sm:justify-end space-y-2 sm:space-y-0 sm:space-x-2 pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onCancel}
+            className="w-full sm:w-auto"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={loading}
+            onClick={form.handleSubmit(onSubmit)}
+            className="w-full sm:w-auto"
+          >
+            {loading ? "Saving..." : editingId ? "Update" : "Create"} Invoice
+          </Button>
+        </div>
       </form>
 
       <Dialog

@@ -27,15 +27,20 @@ BEGIN
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'invoices' AND column_name = 'paid_by_name'
   ) THEN
+    -- Uses invoices.created_at, NOT updated_at — updated_at is bumped by
+    -- a trigger on ANY change to the row (e.g. a client merge
+    -- reassigning client_id), so it can't be trusted as "when this was
+    -- paid". created_at is only ever touched by an intentional invoice
+    -- date edit, never as a side effect.
     INSERT INTO public.payments (invoice_id, amount, method, paid_by_name, paid_by_phone, created_at)
-    SELECT i.id, i.total, i.payment_method, i.paid_by_name, i.paid_by_phone, i.updated_at
+    SELECT i.id, i.total, i.payment_method, i.paid_by_name, i.paid_by_phone, i.created_at
     FROM public.invoices i
     WHERE i.paid = true
       AND i.total > 0
       AND NOT EXISTS (SELECT 1 FROM public.payments p WHERE p.invoice_id = i.id);
   ELSE
     INSERT INTO public.payments (invoice_id, amount, method, created_at)
-    SELECT i.id, i.total, i.payment_method, i.updated_at
+    SELECT i.id, i.total, i.payment_method, i.created_at
     FROM public.invoices i
     WHERE i.paid = true
       AND i.total > 0
