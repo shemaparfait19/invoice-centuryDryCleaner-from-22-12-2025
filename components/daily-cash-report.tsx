@@ -56,6 +56,7 @@ import {
   buildReport,
   type DailyCashReportData,
 } from "@/lib/daily-cash-report-model";
+import { PRODUCT_ITEM_NAMES } from "@/lib/item-catalog";
 
 // Short labels for the printed one-pager — the screen can afford the long ones.
 const SHORT_TYPE_LABELS: Record<string, string> = {
@@ -66,7 +67,7 @@ const SHORT_TYPE_LABELS: Record<string, string> = {
 };
 
 const ACCOUNT_SHORT: Record<string, string> = {
-  cleaner_phone: "Cleaner phone",
+  cleaner_phone: "Dry Cleaner phone",
   products_phone: "Products phone",
   cash: "Cash",
   unassigned: "Unassigned",
@@ -74,7 +75,7 @@ const ACCOUNT_SHORT: Record<string, string> = {
 };
 
 const ACCOUNT_LABELS: Record<string, string> = {
-  cleaner_phone: "Cleaner phone (MoMo)",
+  cleaner_phone: "Dry Cleaner phone (MoMo)",
   products_phone: "Products phone (MoMo)",
   cash: "Cash",
   unassigned: "Unassigned (MoMo)",
@@ -351,6 +352,11 @@ export function DailyCashReport() {
     ]);
     XLSX.utils.book_append_sheet(wb, salesSheet, "Sales");
 
+    const itemsSheet = XLSX.utils.json_to_sheet(
+      model.itemCounts.map((item) => ({ Item: item.name, Qty: item.qty }))
+    );
+    XLSX.utils.book_append_sheet(wb, itemsSheet, "Items");
+
     const totalsSheet = XLSX.utils.aoa_to_sheet([
       ["CENTURY DRY CLEANER - DAILY CASH REPORT"],
       ["Date", formatReportDate(loadedDate)],
@@ -501,6 +507,14 @@ export function DailyCashReport() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">A. Sales</CardTitle>
+                {model.itemCounts.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Items today:{" "}
+                    {model.itemCounts
+                      .map((item) => `${item.name} ${item.qty}`)
+                      .join(" · ")}
+                  </p>
+                )}
               </CardHeader>
               <CardContent className="overflow-x-auto">
                 <table className="report-table w-full text-sm">
@@ -1038,6 +1052,15 @@ export function DailyCashReport() {
               </tfoot>
             </table>
 
+            {model.itemCounts.length > 0 && (
+              <p>
+                <strong>Items today:</strong>{" "}
+                {model.itemCounts
+                  .map((item) => `${item.name} ${item.qty}`)
+                  .join(" · ")}
+              </p>
+            )}
+
             <div className="grid grid-cols-2 gap-x-4">
               <div>
                 <h3 className="font-bold">B. TOTALS</h3>
@@ -1242,7 +1265,7 @@ export function DailyCashReport() {
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label htmlFor="opening-cleaner">Cleaner phone</Label>
+              <Label htmlFor="opening-cleaner">Dry Cleaner phone</Label>
               <CurrencyInput
                 id="opening-cleaner"
                 value={openingCleaner}
@@ -1301,7 +1324,7 @@ export function DailyCashReport() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="cleaner_phone">Cleaner phone</SelectItem>
+                  <SelectItem value="cleaner_phone">Dry Cleaner phone</SelectItem>
                   <SelectItem value="products_phone">Products phone</SelectItem>
                 </SelectContent>
               </Select>
@@ -1381,10 +1404,16 @@ export function DailyCashReport() {
               <Label htmlFor="sale-description">Description</Label>
               <Input
                 id="sale-description"
+                list="item-catalog-options"
                 value={saleDescription}
                 onChange={(e) => setSaleDescription(e.target.value)}
                 placeholder="e.g. Detergent, Hanger"
               />
+              <datalist id="item-catalog-options">
+                {PRODUCT_ITEM_NAMES.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
             </div>
             <div>
               <Label htmlFor="sale-total">Total price</Label>
@@ -1424,7 +1453,7 @@ export function DailyCashReport() {
                 <SelectContent>
                   <SelectItem value="auto">Auto (default rule)</SelectItem>
                   <SelectItem value="products_phone">Products phone</SelectItem>
-                  <SelectItem value="cleaner_phone">Cleaner phone</SelectItem>
+                  <SelectItem value="cleaner_phone">Dry Cleaner phone</SelectItem>
                   <SelectItem value="cash">Cash</SelectItem>
                 </SelectContent>
               </Select>

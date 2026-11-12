@@ -43,6 +43,26 @@ function getRelevantTimestamp(invoice: Invoice, type: "completed" | "paid"): str
   return invoice.updatedAt ?? invoice.createdAt;
 }
 
+// "Today" / "Yesterday" money totals must be money RECEIVED in that window,
+// summed from the payment rows — not the invoice totals of invoices that
+// happen to have a payment today. Those two differ whenever a client pays in
+// parts or paid part of the invoice on an earlier day.
+function getGroupWindow(label: string): { from: number; to: number } | null {
+  const now = new Date();
+  const todayStart = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate()
+  ).getTime();
+  if (label === "Today") {
+    return { from: todayStart, to: todayStart + 86400000 };
+  }
+  if (label === "Yesterday") {
+    return { from: todayStart - 86400000, to: todayStart };
+  }
+  return null;
+}
+
 function getDateGroup(dateStr: string): string {
   const date = new Date(dateStr);
   const now = new Date();
@@ -208,11 +228,30 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
                 <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
                   {group} — {groups[group].length} invoice{groups[group].length !== 1 ? "s" : ""}
                 </h2>
-                {SHOW_TOTAL_FOR.has(group) && (
-                  <span className={`text-sm font-bold ${accentColor}`}>
-                    {formatCurrency(groups[group].reduce((s, inv) => s + inv.total, 0))}
-                  </span>
-                )}
+                {SHOW_TOTAL_FOR.has(group) &&
+                  (() => {
+                    const window = getGroupWindow(group);
+                    const received = groups[group].reduce(
+                      (sum, inv) =>
+                        sum +
+                        (inv.payments || [])
+                          .filter((p) => {
+                            if (!window) return false;
+                            const time = new Date(p.createdAt).getTime();
+                            return time >= window.from && time < window.to;
+                          })
+                          .reduce((paid, p) => paid + p.amount, 0),
+                      0
+                    );
+                    return (
+                      <span
+                        className={`text-sm font-bold ${accentColor}`}
+                        title="Money actually received in this period, from the recorded payments"
+                      >
+                        {formatCurrency(received)} received
+                      </span>
+                    );
+                  })()}
               </div>
 
               {/* Desktop table */}

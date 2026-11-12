@@ -4,6 +4,7 @@
 // export.
 
 import { formatCurrency } from "./utils";
+import { canonicalItemName } from "./item-catalog";
 import type { MoneyAccount, PaymentStatus } from "./types";
 
 export interface ReportSaleItem {
@@ -163,7 +164,7 @@ export function summarizeItemList(items: ReportSaleItem[]): string {
   if (!items || items.length === 0) return "—";
   const grouped = new Map<string, number>();
   for (const item of items) {
-    const name = shortItemName(item.description);
+    const name = canonicalItemName(shortItemName(item.description));
     grouped.set(name, (grouped.get(name) || 0) + item.quantity);
   }
   return Array.from(grouped.entries())
@@ -280,6 +281,9 @@ export interface ReportModel {
   totalWithdrawals: number;
   net: number;
   byType: TypeRow[];
+  // How many of each garment/product came in today, for the boss's count:
+  // "Pants 12 · Jeans 4 · Bed cover 3".
+  itemCounts: { name: string; qty: number }[];
   checkPasses: boolean;
   checkDifference: number;
   checkCauses: string[];
@@ -392,7 +396,7 @@ export function buildReport(
 
       rows.push({
         key: `item-${invoice.id}-${index}`,
-        items: shortItemName(item.description),
+        items: canonicalItemName(shortItemName(item.description)),
         qty: item.quantity,
         cash: lineCash,
         momo: lineMomo,
@@ -420,7 +424,7 @@ export function buildReport(
     }
     rows.push({
       key: `extra-${sale.id}`,
-      items: `${shortItemName(sale.description)} x${sale.quantity}`,
+      items: canonicalItemName(shortItemName(sale.description)),
       qty: sale.quantity,
       cash: sale.amountPaidCash,
       momo: sale.amountPaidMomo,
@@ -620,6 +624,15 @@ export function buildReport(
   const products = sumType("product");
   const extras = sumType("extra");
 
+  const itemCountMap = new Map<string, number>();
+  for (const row of rows) {
+    if (row.oldDebt) continue;
+    itemCountMap.set(row.items, (itemCountMap.get(row.items) || 0) + row.qty);
+  }
+  const itemCounts = Array.from(itemCountMap.entries())
+    .map(([name, qty]) => ({ name, qty }))
+    .sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name));
+
   const byType: TypeRow[] = [
     { key: "dry_cleaning", label: "Dry cleaning", ...dryCleaning },
     { key: "product", label: "Products/detergents", ...products },
@@ -712,6 +725,7 @@ export function buildReport(
     totalWithdrawals,
     net,
     byType,
+    itemCounts,
     checkPasses: Math.abs(checkDifference) <= 0.5,
     checkDifference,
     checkCauses,

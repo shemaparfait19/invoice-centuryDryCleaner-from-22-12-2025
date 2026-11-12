@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, Trash2 } from "lucide-react";
 import { SERVICES } from "@/lib/services";
+import { searchItemCatalog } from "@/lib/item-catalog";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency, formatTime, generateInvoiceId, getLocalDateString, normalizePhoneForMatch } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -594,15 +595,22 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
                     {activeItemSuggestion === index &&
                       form.watch(`items.${index}.description`) &&
                       (() => {
-                        const matches = SERVICES.filter((s) =>
-                          s
-                            .toLowerCase()
-                            .includes(
-                              (
-                                form.watch(`items.${index}.description`) || ""
-                              ).toLowerCase()
-                            )
-                        ).slice(0, 8);
+                        const query = (
+                          form.watch(`items.${index}.description`) || ""
+                        ).toLowerCase();
+                        // Short catalog names first (Shirt, Pants, Bed cover…) so
+                        // staff pick consistent wording, then the longer service
+                        // descriptions for anything more specific.
+                        const catalogMatches = searchItemCatalog(query);
+                        const serviceMatches = SERVICES.filter(
+                          (s) =>
+                            s.toLowerCase().includes(query) &&
+                            !catalogMatches.includes(s)
+                        );
+                        const matches = [
+                          ...catalogMatches,
+                          ...serviceMatches,
+                        ].slice(0, 8);
                         // Nothing to suggest, or the field already exactly
                         // matches the only suggestion — no point showing it.
                         if (
