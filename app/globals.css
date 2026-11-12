@@ -144,7 +144,7 @@
   /* The printed daily report is a dedicated compact block: one A4 page. */
   .print-compact {
     font-size: 9.5px;
-    line-height: 1.25;
+    line-height: 1.35;
     page-break-inside: avoid;
   }
 
@@ -154,7 +154,7 @@
 
   .print-compact h3 {
     font-size: 9.5px;
-    margin: 5px 0 1px;
+    margin: 7px 0 2px;
     letter-spacing: 0.02em;
   }
 
@@ -164,7 +164,7 @@
 
   .print-compact .report-table th,
   .print-compact .report-table td {
-    padding: 1px 3px;
+    padding: 2px 4px;
     font-size: 9.5px;
   }
 

@@ -172,6 +172,55 @@ export function summarizeItemList(items: ReportSaleItem[]): string {
     .join(", ");
 }
 
+export interface ExpandedItemLine {
+  description: string;
+  quantity: number;
+  totalPrice: number;
+}
+
+// One line may name several garments ("Shirt x4, Underpants x5, Socks x3,
+// Shoes x1"); this turns it into one line per garment, sharing that line's
+// money by piece (a flat per-piece price), so nothing is merged into one row.
+export function expandItemLines(items: ReportSaleItem[]): ExpandedItemLine[] {
+  const lines: ExpandedItemLine[] = [];
+  for (const line of items) {
+    const money = Math.max(0, line.totalPrice ?? 0);
+    const pieces = parseItemLine(line.description || "");
+    if (!pieces || pieces.length === 0) {
+      lines.push({
+        description: line.description,
+        quantity: line.quantity,
+        totalPrice: money,
+      });
+      continue;
+    }
+    if (pieces.length === 1) {
+      lines.push({
+        description: pieces[0].name,
+        quantity: pieces[0].quantity || line.quantity,
+        totalPrice: money,
+      });
+      continue;
+    }
+    const pieceCount = pieces.reduce((sum, piece) => sum + piece.quantity, 0);
+    const perPiece = pieceCount > 0 ? money / pieceCount : 0;
+    let given = 0;
+    pieces.forEach((piece, index) => {
+      const amount =
+        index === pieces.length - 1
+          ? round2(money - given)
+          : round2(perPiece * piece.quantity);
+      given = round2(given + amount);
+      lines.push({
+        description: piece.name,
+        quantity: piece.quantity,
+        totalPrice: amount,
+      });
+    });
+  }
+  return lines;
+}
+
 // Splits an amount across lines proportionally; the last line takes the
 // rounding remainder so the parts always add back to the whole.
 export function allocate(total: number, shares: number[]): number[] {
@@ -369,44 +418,8 @@ export function buildReport(
             },
           ];
     // A line may name several garments ("Shirt x4, Underpants x5, Socks x3");
-    // break it into one row per garment, sharing that line's money by piece.
-    const lines: { description: string; quantity: number; totalPrice: number }[] =
-      [];
-    for (const line of sourceLines) {
-      const money = Math.max(0, line.totalPrice ?? 0);
-      const pieces = parseItemLine(line.description || "");
-      if (!pieces || pieces.length === 0) {
-        lines.push({
-          description: line.description,
-          quantity: line.quantity,
-          totalPrice: money,
-        });
-        continue;
-      }
-      if (pieces.length === 1) {
-        lines.push({
-          description: pieces[0].name,
-          quantity: pieces[0].quantity || line.quantity,
-          totalPrice: money,
-        });
-        continue;
-      }
-      const pieceCount = pieces.reduce((sum, piece) => sum + piece.quantity, 0);
-      const perPiece = pieceCount > 0 ? money / pieceCount : 0;
-      let given = 0;
-      pieces.forEach((piece, index) => {
-        const amount =
-          index === pieces.length - 1
-            ? round2(money - given)
-            : round2(perPiece * piece.quantity);
-        given = round2(given + amount);
-        lines.push({
-          description: piece.name,
-          quantity: piece.quantity,
-          totalPrice: amount,
-        });
-      });
-    }
+    // expandItemLines breaks it into one row per garment.
+    const lines = expandItemLines(sourceLines);
     const linePrices = lines.map((item) => Math.max(0, item.totalPrice ?? 0));
     const weightTotal = linePrices.reduce((sum, price) => sum + price, 0);
     const lineSum = round2(weightTotal);
@@ -518,6 +531,14 @@ export function buildReport(
   let oldDebtMomo = 0;
   let oldDebtPending = 0;
 
+  // Items received today, counted before money collected on old invoices is
+  // added in, so "Items today" stays a count of goods that came in today.
+  const todayItemCountMap = new Map<string, number>();
+  for (const row of rows) {
+    if (row.oldDebt) continue;
+    todayItemCountMap.set(row.items, (todayItemCountMap.get(row.items) || 0) + row.qty);
+  }
+
   for (const payment of data.dayPayments) {
     if (!payment.invoiceCreatedAt) continue;
     if (Date.parse(payment.invoiceCreatedAt) >= fromTime) continue;
@@ -554,27 +575,89 @@ export function buildReport(
 
     oldDebtList.push(entry);
 
-    // Also show it as a row in today's sales table: this item was collected
-    // today, so it belongs with the day's money. Its "total" is the amount
-    // received (there is no new billing — the invoice was billed earlier).
-    rows.push({
-      key: `old-${payment.id}`,
-      items: summarizeItemList(items),
-      qty: items.reduce((sum, item) => sum + item.quantity, 0),
-      cash: payment.method === "CASH" ? payment.amount : 0,
-      momo: payment.method === "MOMO" ? payment.amount : 0,
-      pendingMomo: 0,
-      other:
-        payment.method === "CASH" || payment.method === "MOMO"
-          ? 0
-          : payment.amount,
-      total: payment.amount,
-      debt: 0,
-      category,
-      time: Date.parse(payment.createdAt),
-      status: "paid",
-      oldDebt: true,
+    // Also show it in today's sales table: this money was collected today, so
+    // it belongs with the day's money. Its "total" is the amount received
+    // (there is no new billing — the invoice was billed earlier), split over
+    // the garment lines so each garment keeps its own row and its own money.
+    const collected = expandItemLines(items);
+    const collectedLines =
+      collected.length > 0
+        ? collected
+        : [
+            {
+              description: "—",
+              quantity: 0,
+              totalPrice: payment.amount,
+            },
+          ];
+    const collectedWeights = collectedLines.map((line) =>
+      line.totalPrice > 0 ? line.totalPrice : line.quantity
+    );
+    const collectedWeightTotal = collectedWeights.reduce(
+      (sum, weight) => sum + weight,
+      0
+    );
+    const collectedShares =
+      collectedWeightTotal > 0
+        ? collectedWeights.map((weight) => weight / collectedWeightTotal)
+        : collectedLines.map(() => 1 / collectedLines.length);
+    const collectedAmounts = allocate(payment.amount, collectedShares);
+
+    collectedLines.forEach((line, index) => {
+      const amount = collectedAmounts[index];
+      rows.push({
+        key: `old-${payment.id}-${index}`,
+        items: canonicalItemName(shortItemName(line.description)),
+        qty: line.quantity || 0,
+        cash: payment.method === "CASH" ? amount : 0,
+        momo: payment.method === "MOMO" ? amount : 0,
+        pendingMomo: 0,
+        other:
+          payment.method === "CASH" || payment.method === "MOMO" ? 0 : amount,
+        total: amount,
+        debt: 0,
+        category,
+        time: Date.parse(payment.createdAt),
+        status: "paid",
+        oldDebt: true,
+      });
     });
+  }
+
+  // Deconstruct the day's invoices and rebuild them garment by garment: the
+  // same item from several invoices (or from money collected on an old one)
+  // becomes a single line with the quantities and the money added together.
+  // Manual product/extra sales keep their own line so they stay deletable.
+  const mergedRows: SaleRow[] = [];
+  const mergedByItem = new Map<string, SaleRow>();
+  for (const row of rows) {
+    if (row.deletable || row.sourceId) {
+      mergedRows.push(row);
+      continue;
+    }
+    const key = `${row.category}|${row.items}`;
+    const existing = mergedByItem.get(key);
+    if (!existing) {
+      const copy = { ...row };
+      mergedByItem.set(key, copy);
+      mergedRows.push(copy);
+      continue;
+    }
+    existing.qty += row.qty;
+    existing.cash = round2(existing.cash + row.cash);
+    existing.momo = round2(existing.momo + row.momo);
+    existing.pendingMomo = round2(existing.pendingMomo + row.pendingMomo);
+    existing.other = round2(existing.other + row.other);
+    existing.total = round2(existing.total + row.total);
+    existing.debt = round2(existing.debt + row.debt);
+    existing.time = Math.min(existing.time, row.time);
+    existing.oldDebt = Boolean(existing.oldDebt && row.oldDebt);
+  }
+  rows.length = 0;
+  for (const row of mergedRows) {
+    const paid = round2(row.cash + row.momo + row.other);
+    row.status = rowStatus(paid, row.pendingMomo, row.debt);
+    rows.push(row);
   }
 
   // Old-debt rows were added after the first sort, so order the table again.
@@ -681,12 +764,7 @@ export function buildReport(
   const products = sumType("product");
   const extras = sumType("extra");
 
-  const itemCountMap = new Map<string, number>();
-  for (const row of rows) {
-    if (row.oldDebt) continue;
-    itemCountMap.set(row.items, (itemCountMap.get(row.items) || 0) + row.qty);
-  }
-  const itemCounts = Array.from(itemCountMap.entries())
+  const itemCounts = Array.from(todayItemCountMap.entries())
     .map(([name, qty]) => ({ name, qty }))
     .sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name));
 

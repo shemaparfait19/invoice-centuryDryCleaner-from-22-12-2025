@@ -1061,192 +1061,58 @@ export function DailyCashReport() {
               </p>
             )}
 
-            <div className="grid grid-cols-2 gap-x-4">
-              <div>
-                <h3 className="font-bold">B. TOTALS</h3>
-                <table className="report-table w-full">
-                  <tbody>
-                    <tr>
-                      <td>Cash received</td>
-                      <td className="text-right">
-                        {formatCurrency(model.cashReceived)}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td>MoMo received</td>
-                      <td className="text-right">
-                        {formatCurrency(model.momoReceived)}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td>Total amount</td>
-                      <td className="text-right">
-                        {formatCurrency(model.totalAmount)}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td>Outstanding debt</td>
-                      <td className="text-right">
-                        {formatCurrency(model.totalDebt)}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td>Received (total − debt)</td>
-                      <td className="text-right">
-                        {formatCurrency(model.totalReceived)}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td>Pending MoMo</td>
-                      <td className="text-right">
-                        {formatCurrency(model.pendingMomo)}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td>Of which old debt (included above)</td>
-                      <td className="text-right">
-                        {formatCurrency(model.oldDebtReceived)}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-                {!model.checkPasses && (
-                  <p className="font-bold">
-                    TOTALS DO NOT MATCH — {model.checkCauses.join(" ")}
-                  </p>
-                )}
-              </div>
-              <div>
-                <h3 className="font-bold">C. MONEY BY ACCOUNT</h3>
-                <table className="report-table w-full">
-                  <thead>
-                    <tr>
-                      <th className="text-left">Account</th>
-                      <th className="text-right">Opening</th>
-                      <th className="text-right">Received</th>
-                      <th className="text-right">Out</th>
-                      <th className="text-right">Balance</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {model.accounts.map((account) => (
-                      <tr key={account.account}>
-                        <td>
-                          {ACCOUNT_SHORT[account.account] || account.account}
-                        </td>
-                        <td className="text-right">
-                          {formatCurrency(account.opening)}
-                        </td>
-                        <td className="text-right">
-                          {formatCurrency(account.received)}
-                        </td>
-                        <td className="text-right">
-                          {formatCurrency(account.withdrawn)}
-                        </td>
-                        <td className="text-right">
-                          {formatCurrency(account.balance)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0 border-t-2 border-black pt-1">
+              <span>
+                CASH <strong>{formatCurrency(model.cashReceived)}</strong>
+              </span>
+              <span>
+                MOMO <strong>{formatCurrency(model.momoReceived)}</strong>
+              </span>
+              <span>
+                RECEIVED <strong>{formatCurrency(model.totalReceived)}</strong>
+              </span>
+              <span>
+                DEBT <strong>{formatCurrency(model.totalDebt)}</strong>
+              </span>
+              {model.oldDebtReceived > 0 && (
+                <span>
+                  OLD DEBT <strong>{formatCurrency(model.oldDebtReceived)}</strong>
+                </span>
+              )}
+              {model.totalWithdrawals > 0 && (
+                <span>
+                  OUT <strong>{formatCurrency(model.totalWithdrawals)}</strong>
+                </span>
+              )}
+              <span>
+                NET <strong>{formatCurrency(model.net)}</strong>
+              </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-x-4">
-              <div>
-                <h3 className="font-bold">D. SALES BY TYPE</h3>
-                <table className="report-table w-full">
-                  <thead>
-                    <tr>
-                      <th className="text-left">Type</th>
-                      <th className="text-right">No.</th>
-                      <th className="text-right">Billed</th>
-                      <th className="text-right">Received</th>
-                      <th className="text-right">Unpaid</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {model.byType.map((type) => (
-                      <tr key={type.key}>
-                        <td>{SHORT_TYPE_LABELS[type.key] || type.label}</td>
-                        <td className="text-right">{type.count}</td>
-                        <td className="text-right">
-                          {formatCurrency(type.billed)}
-                        </td>
-                        <td className="text-right">
-                          {formatCurrency(type.received)}
-                        </td>
-                        <td className="text-right">
-                          {formatCurrency(type.unpaid)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div>
-                <h3 className="font-bold">F. WITHDRAWALS</h3>
-                <table className="report-table w-full">
-                  <thead>
-                    <tr>
-                      <th className="text-left">Account</th>
-                      <th className="text-left">Note</th>
-                      <th className="text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data?.withdrawals.map((withdrawal) => (
-                      <tr key={withdrawal.id}>
-                        <td>
-                          {ACCOUNT_SHORT[withdrawal.account] ||
-                            withdrawal.account}
-                        </td>
-                        <td>{withdrawal.note || "—"}</td>
-                        <td className="text-right">
-                          {formatCurrency(withdrawal.amount)}
-                        </td>
-                      </tr>
-                    ))}
-                    {!data?.withdrawals.length && (
-                      <tr>
-                        <td colSpan={3}>None.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-                <p className="font-bold">
-                  Net (received − withdrawals): {formatCurrency(model.net)}
-                </p>
-              </div>
-            </div>
+            {model.accounts.some(
+              (account) => account.opening !== 0 || account.withdrawn !== 0
+            ) && (
+              <p className="mt-1">
+                <strong>Accounts:</strong>{" "}
+                {model.accounts
+                  .map(
+                    (account) =>
+                      `${
+                        ACCOUNT_SHORT[account.account] || account.account
+                      } ${formatCurrency(account.balance)}`
+                  )
+                  .join(" · ")}
+              </p>
+            )}
 
-            <h3 className="font-bold">E. OLD DEBT RECEIVED TODAY</h3>
-            <p>
-              {model.oldDebtList.length === 0
-                ? "None."
-                : `${model.oldDebtList
-                    .map(
-                      (entry) =>
-                        `${entry.time} — ${entry.items} — ${
-                          entry.method
-                        } ${formatCurrency(entry.amount)}${
-                          entry.pending ? " (pending)" : ""
-                        }`
-                    )
-                    .join("  ·  ")}  — total ${formatCurrency(
-                    model.oldDebtReceived
-                  )}`}
-            </p>
+            {!model.checkPasses && (
+              <p className="mt-1 font-bold">
+                CHECK {formatCurrency(model.checkDifference)} —{" "}
+                {model.checkCauses.join(" ")}
+              </p>
+            )}
 
-            <h3 className="font-bold">G. NOTES</h3>
-            <p>
-              {model.notes.length === 0
-                ? "None."
-                : model.notes.join("  ·  ")}
-            </p>
-
-            <div className="mt-2 flex justify-between">
+            <div className="mt-3 flex justify-between">
               <span>Prepared by ______________________</span>
               <span>Manager signature ______________________</span>
             </div>
