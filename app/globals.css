@@ -93,6 +93,57 @@
     margin: 0.5in;
     size: A4 portrait;
   }
+
+  /* Daily Cash Report: hide controls, forms and dialogs; keep the report
+     itself compact, black-and-white and readable on A4. */
+  .no-print {
+    display: none !important;
+  }
+
+  .print-content {
+    font-size: 11px;
+  }
+
+  .print-content [class*="bg-card"],
+  .print-content [class*="bg-muted"],
+  .print-content [class*="bg-background"] {
+    background: #fff !important;
+  }
+
+  .print-content .report-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .print-content .report-table th,
+  .print-content .report-table td {
+    border: 1px solid #000 !important;
+    padding: 2px 4px;
+    color: #000 !important;
+  }
+
+  .print-content .report-table thead th {
+    border-bottom: 2px solid #000 !important;
+    text-align: left;
+  }
+
+  .print-content .report-table tfoot td {
+    border-top: 2px solid #000 !important;
+    font-weight: 700;
+  }
+
+  .print-content .text-muted-foreground {
+    color: #333 !important;
+  }
+
+  .print-content .rounded-lg,
+  .print-content .rounded-md {
+    border-radius: 0 !important;
+  }
+
+  .print-content [class*="shadow"] {
+    box-shadow: none !important;
+  }
 }
 
 /* Responsive improvements */

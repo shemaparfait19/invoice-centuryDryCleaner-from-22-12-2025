@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CurrencyInput } from "@/components/ui/currency-input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -23,7 +24,7 @@ import {
 import { Wallet, Plus, Trash2, Pencil } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency } from "@/lib/utils";
-import type { Invoice, Payment } from "@/lib/types";
+import type { Invoice, MoneyAccount, Payment } from "@/lib/types";
 
 export const PAYMENT_METHOD_LABELS: Record<string, string> = {
   UNPAID: "Unpaid / On Account",
@@ -86,7 +87,24 @@ export function PaymentMethodLabel({ invoice, className = "" }: { invoice: Invoi
   return <span className={`text-sm text-muted-foreground ${className}`}>{getPaymentMethodsLabel(invoice)}</span>;
 }
 
-type PaymentLine = { id: string; amount: string; method: string };
+type PaymentLine = {
+  id: string;
+  amount: string;
+  method: string;
+  // "auto" = let the Daily Cash Report apply its default rule
+  // (cash → cash box, dry cleaning MoMo → cleaner phone,
+  // product MoMo → products phone).
+  account: string;
+  // Mobile Money that the phone has not confirmed yet. Reported as pending,
+  // never counted as received money.
+  pending: boolean;
+};
+
+function defaultAccountFor(method: string): string {
+  if (method === "CASH") return "cash";
+  if (method === "MOMO") return "cleaner_phone";
+  return "auto";
+}
 
 // Records one or more payments toward an invoice in a single dialog — hit
 // "Split Payment" to add another line (e.g. part cash, part Mobile Money,
@@ -111,13 +129,17 @@ export function RecordPaymentButton({
   if (balanceDue <= 0) return null;
 
   const openDialog = () => {
+    const method =
+      invoice.paymentMethod && !["UNPAID", "SPLIT"].includes(invoice.paymentMethod)
+        ? invoice.paymentMethod
+        : "CASH";
     setLines([
       {
         id: "line-1",
         amount: String(balanceDue),
-        method: invoice.paymentMethod && !["UNPAID", "SPLIT"].includes(invoice.paymentMethod)
-          ? invoice.paymentMethod
-          : "CASH",
+        method,
+        account: defaultAccountFor(method),
+        pending: false,
       },
     ]);
     setOpen(true);
@@ -126,8 +148,23 @@ export function RecordPaymentButton({
   const addLine = () => {
     const used = new Set(lines.map((l) => l.method));
     const nextMethod = ["CASH", "MOMO", "BANK", "CARD"].find((m) => !used.has(m)) || "CASH";
-    setLines((prev) => [...prev, { id: `line-${Date.now()}`, amount: "", method: nextMethod }]);
+    setLines((prev) => [
+      ...prev,
+      {
+        id: `line-${Date.now()}`,
+        amount: "",
+        method: nextMethod,
+        account: defaultAccountFor(nextMethod),
+        pending: false,
+      },
+    ]);
   };
+  const setLineMethod = (id: string, method: string) =>
+    setLines((prev) =>
+      prev.map((l) =>
+        l.id === id ? { ...l, method, account: defaultAccountFor(method) } : l
+      )
+    );
   const removeLine = (id: string) =>
     setLines((prev) => (prev.length > 1 ? prev.filter((l) => l.id !== id) : prev));
   const updateLine = (id: string, patch: Partial<PaymentLine>) =>
@@ -142,7 +179,16 @@ export function RecordPaymentButton({
       await addPayments(
         invoice.id,
         lines
-          .map((l) => ({ amount: parseFloat(l.amount) || 0, method: l.method }))
+          .map((l) => ({
+            amount: parseFloat(l.amount) || 0,
+            method: l.method,
+            account:
+              l.account === "auto" ? null : (l.account as MoneyAccount),
+            status:
+              l.method === "MOMO" && l.pending
+                ? ("pending" as const)
+                : ("confirmed" as const),
+          }))
           .filter((l) => l.amount > 0)
       );
       setOpen(false);
@@ -176,35 +222,76 @@ export function RecordPaymentButton({
           </DialogHeader>
           <div className="space-y-3">
             {lines.map((line, i) => (
-              <div key={line.id} className="flex gap-2 items-start">
-                <CurrencyInput
-                  placeholder="Amount"
-                  value={line.amount}
-                  onChange={(raw) => updateLine(line.id, { amount: raw })}
-                  className="flex-1"
-                />
-                <Select value={line.method} onValueChange={(v) => updateLine(line.id, { method: v })}>
-                  <SelectTrigger className="w-36">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="CASH">Cash</SelectItem>
-                    <SelectItem value="MOMO">Mobile Money</SelectItem>
-                    <SelectItem value="BANK">Bank Transfer</SelectItem>
-                    <SelectItem value="CARD">Card Payment</SelectItem>
-                  </SelectContent>
-                </Select>
-                {lines.length > 1 && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeLine(line.id)}
-                    className="text-red-600 flex-shrink-0"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+              <div key={line.id} className="space-y-2 rounded border p-2">
+                <div className="flex gap-2 items-start">
+                  <CurrencyInput
+                    placeholder="Amount"
+                    value={line.amount}
+                    onChange={(raw) => updateLine(line.id, { amount: raw })}
+                    className="flex-1"
+                  />
+                  <Select value={line.method} onValueChange={(v) => setLineMethod(line.id, v)}>
+                    <SelectTrigger className="w-36">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="CASH">Cash</SelectItem>
+                      <SelectItem value="MOMO">Mobile Money</SelectItem>
+                      <SelectItem value="BANK">Bank Transfer</SelectItem>
+                      <SelectItem value="CARD">Card Payment</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {lines.length > 1 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeLine(line.id)}
+                      className="text-red-600 flex-shrink-0"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                {line.method === "MOMO" && (
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id={`pending-${line.id}`}
+                      checked={line.pending}
+                      onCheckedChange={(checked) =>
+                        updateLine(line.id, { pending: checked === true })
+                      }
+                    />
+                    <Label
+                      htmlFor={`pending-${line.id}`}
+                      className="text-xs text-muted-foreground"
+                    >
+                      MoMo not confirmed yet (pending)
+                    </Label>
+                  </div>
                 )}
+                <div>
+                  <Label
+                    htmlFor={`account-${line.id}`}
+                    className="text-xs text-muted-foreground"
+                  >
+                    Received in
+                  </Label>
+                  <Select
+                    value={line.account}
+                    onValueChange={(v) => updateLine(line.id, { account: v })}
+                  >
+                    <SelectTrigger id={`account-${line.id}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Auto (default rule)</SelectItem>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="cleaner_phone">Cleaner phone</SelectItem>
+                      <SelectItem value="products_phone">Products phone</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             ))}
             <Button

@@ -178,6 +178,8 @@ export interface Database {
           method: string;
           paid_by_name: string | null;
           paid_by_phone: string | null;
+          account: "cleaner_phone" | "products_phone" | "cash" | null;
+          status: "confirmed" | "pending";
           created_at: string;
         };
         Insert: {
@@ -187,6 +189,8 @@ export interface Database {
           method: string;
           paid_by_name?: string | null;
           paid_by_phone?: string | null;
+          account?: "cleaner_phone" | "products_phone" | "cash" | null;
+          status?: "confirmed" | "pending";
           created_at?: string;
         };
         Update: {
@@ -196,6 +200,8 @@ export interface Database {
           method?: string;
           paid_by_name?: string | null;
           paid_by_phone?: string | null;
+          account?: "cleaner_phone" | "products_phone" | "cash" | null;
+          status?: "confirmed" | "pending";
           created_at?: string;
         };
       };
@@ -225,6 +231,108 @@ export interface Database {
           quantity?: number;
           unit_price?: number;
           total_price?: number;
+          created_at?: string;
+        };
+      };
+      daily_balances: {
+        Row: {
+          id: string;
+          report_date: string;
+          opening_cleaner_phone: number;
+          opening_products_phone: number;
+          opening_cash: number;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          report_date: string;
+          opening_cleaner_phone?: number;
+          opening_products_phone?: number;
+          opening_cash?: number;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          report_date?: string;
+          opening_cleaner_phone?: number;
+          opening_products_phone?: number;
+          opening_cash?: number;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      withdrawals: {
+        Row: {
+          id: string;
+          withdrawn_at: string;
+          account: "cleaner_phone" | "products_phone" | "cash";
+          amount: number;
+          note: string | null;
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          withdrawn_at?: string;
+          account: "cleaner_phone" | "products_phone" | "cash";
+          amount: number;
+          note?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          withdrawn_at?: string;
+          account?: "cleaner_phone" | "products_phone" | "cash";
+          amount?: number;
+          note?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+        };
+      };
+      extra_sales: {
+        Row: {
+          id: string;
+          sold_at: string;
+          category: "product" | "extra";
+          description: string;
+          quantity: number;
+          total_price: number;
+          amount_paid_cash: number;
+          amount_paid_momo: number;
+          account: "cleaner_phone" | "products_phone" | "cash" | null;
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          sold_at?: string;
+          category: "product" | "extra";
+          description: string;
+          quantity?: number;
+          total_price: number;
+          amount_paid_cash?: number;
+          amount_paid_momo?: number;
+          account?: "cleaner_phone" | "products_phone" | "cash" | null;
+          created_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          sold_at?: string;
+          category?: "product" | "extra";
+          description?: string;
+          quantity?: number;
+          total_price?: number;
+          amount_paid_cash?: number;
+          amount_paid_momo?: number;
+          account?: "cleaner_phone" | "products_phone" | "cash" | null;
+          created_by?: string | null;
           created_at?: string;
         };
       };

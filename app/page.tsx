@@ -36,7 +36,7 @@ import { RealTimeStatusIndicator } from "@/components/real-time-status-indicator
 import { InvoiceDashboardCard } from "@/components/invoice-dashboard-card";
 import { InvoiceStatusManager } from "@/components/invoice-status-manager";
 import { InvoicePrint } from "@/components/invoice-print";
-import { Invoice } from "@/types";
+import type { Invoice } from "@/lib/types";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -561,6 +561,16 @@ export default function HomePage() {
               >
                 Reports
               </Button>
+              <Link href="/daily-report">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="flex-1 sm:flex-none"
+                >
+                  <Banknote className="h-4 w-4 mr-1" />
+                  Daily Report
+                </Button>
+              </Link>
               <Button
                 variant={currentView === "setup" ? "default" : "ghost"}
                 onClick={() => setCurrentView("setup")}

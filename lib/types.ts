@@ -22,6 +22,15 @@ export interface InvoiceItem {
   totalPrice: number;
 }
 
+// Where money physically landed. `cleaner_phone` and `products_phone` are the
+// two Mobile Money numbers; `cash` is the cash box. See lib/daily-cash-report.ts
+// for the default rule used when a payment has no stored account.
+export type MoneyAccount = "cleaner_phone" | "products_phone" | "cash";
+
+// A recorded Mobile Money payment is only money in hand once it is confirmed;
+// `pending` ones are reported separately and never counted as received.
+export type PaymentStatus = "confirmed" | "pending";
+
 // One recorded payment against an invoice. An invoice can have several —
 // a deposit now and the remainder later, optionally via different methods.
 export interface Payment {
@@ -30,7 +39,45 @@ export interface Payment {
   method: string;
   paidByName?: string;
   paidByPhone?: string;
+  // Optional: which account received the money. Undefined/null means "use the
+  // report's default rule" (cash → cash box, dry cleaning MoMo → cleaner phone,
+  // product MoMo → products phone).
+  account?: MoneyAccount | null;
+  status?: PaymentStatus;
   createdAt: string;
+}
+
+// One row per report day: the money each account started the day with.
+export interface DailyBalance {
+  reportDate: string;
+  openingCleanerPhone: number;
+  openingProductsPhone: number;
+  openingCash: number;
+}
+
+// Money the owner took out of an account.
+export interface Withdrawal {
+  id: string;
+  withdrawnAt: string;
+  account: MoneyAccount;
+  amount: number;
+  note?: string;
+  createdBy?: string;
+}
+
+// A product (detergent, hand wash...) or extra (hanger, cover...) sold outside
+// the dry-cleaning invoice flow — lib/services.ts has no product catalog.
+export interface ExtraSale {
+  id: string;
+  soldAt: string;
+  category: "product" | "extra";
+  description: string;
+  quantity: number;
+  totalPrice: number;
+  amountPaidCash: number;
+  amountPaidMomo: number;
+  account?: MoneyAccount | null;
+  createdBy?: string;
 }
 
 export interface Invoice {

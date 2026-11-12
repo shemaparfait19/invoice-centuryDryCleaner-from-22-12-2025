@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { supabase } from "./supabase";
-import type { Client, Invoice, InvoiceItem, UserAccount } from "./types";
+import type { Client, Invoice, InvoiceItem, MoneyAccount, UserAccount } from "./types";
 import { toast } from "@/hooks/use-toast";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { getLocalDateString, generateInvoiceId, normalizePhoneForMatch } from "./utils";
@@ -68,7 +68,12 @@ interface SupabaseStore {
       initialPayments?: { amount: number; method: string }[];
     }
   ) => Promise<void>;
-  updateInvoice: (id: string, invoice: Partial<Invoice>) => Promise<void>;
+  // `notes: null` clears the note — the store already writes `|| null`, so the
+  // type just allows callers to say so explicitly.
+  updateInvoice: (
+    id: string,
+    invoice: Partial<Omit<Invoice, "notes">> & { notes?: string | null }
+  ) => Promise<void>;
   deleteInvoice: (id: string) => Promise<void>;
   addPayment: (invoiceId: string, amount: number, method: string) => Promise<void>;
   // Batches several payment lines into one invoice in a single pass — used
@@ -76,7 +81,12 @@ interface SupabaseStore {
   // part cash + part MoMo doesn't need reopening the dialog per line.
   addPayments: (
     invoiceId: string,
-    lines: { amount: number; method: string }[]
+    lines: {
+      amount: number;
+      method: string;
+      account?: MoneyAccount | null;
+      status?: "confirmed" | "pending";
+    }[]
   ) => Promise<void>;
   // Corrects a mistake in an already-recorded payment (wrong amount or
   // method) instead of only being able to delete it or wipe all payments.
@@ -136,6 +146,25 @@ async function checkActorColumns(): Promise<boolean> {
     actorColumnsReady = false;
   }
   return actorColumnsReady;
+}
+
+// Cached probe: has scripts/add-daily-cash-report.sql added payments.account /
+// payments.status yet? Until it has, payments are inserted without those
+// columns so invoice creation keeps working (same pattern as the probes above).
+let paymentsAccountColumnReady: boolean | null = null;
+
+async function checkPaymentsAccountColumn(): Promise<boolean> {
+  if (paymentsAccountColumnReady !== null) return paymentsAccountColumnReady;
+  try {
+    const { error } = await supabase
+      .from("payments")
+      .select("account, status")
+      .limit(1);
+    paymentsAccountColumnReady = !error;
+  } catch {
+    paymentsAccountColumnReady = false;
+  }
+  return paymentsAccountColumnReady;
 }
 
 // Cached probe: has scripts/add-completed-at.sql been run yet? Same
@@ -2229,6 +2258,7 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
     }
 
     const { currentUserName, currentUserPhone } = get();
+    const hasAccountColumn = await checkPaymentsAccountColumn();
 
     try {
       const { data, error } = await supabase
@@ -2240,6 +2270,8 @@ export const useSupabaseStore = create<SupabaseStore>((set, get) => ({
             method: l.method,
             paid_by_name: currentUserName || null,
             paid_by_phone: currentUserPhone || null,
+            ...(hasAccountColumn && l.account ? { account: l.account } : {}),
+            ...(hasAccountColumn && l.status ? { status: l.status } : {}),
           }))
         )
         .select();
