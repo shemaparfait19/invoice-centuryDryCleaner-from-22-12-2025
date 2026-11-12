@@ -66,6 +66,7 @@ function toItems(rawItems: any): ReportSaleItem[] {
   return (Array.isArray(rawItems) ? rawItems : []).map((item: any) => ({
     description: String(item?.description || ""),
     quantity: Number(item?.quantity || 0),
+    totalPrice: Number(item?.total_price || 0),
   }));
 }
 
@@ -96,7 +97,7 @@ export async function fetchDailyCashReport(
   // --- invoices created on the selected day -------------------------------
   const invoiceSelect = `
     id, total, status, payment_method, created_at,
-    invoice_items(description, quantity),
+    invoice_items(description, quantity, total_price),
     payments(*)
   `;
 
@@ -144,9 +145,9 @@ export async function fetchDailyCashReport(
   {
     const paymentSelect = hasPaymentColumns
       ? `id, invoice_id, amount, method, account, status, created_at,
-         invoice:invoices!inner(id, status, created_at, invoice_items(description, quantity))`
+         invoice:invoices!inner(id, status, created_at, invoice_items(description, quantity, total_price))`
       : `id, invoice_id, amount, method, created_at,
-         invoice:invoices!inner(id, status, created_at, invoice_items(description, quantity))`;
+         invoice:invoices!inner(id, status, created_at, invoice_items(description, quantity, total_price))`;
 
     const pageSize = 1000;
     let page = 0;
@@ -323,6 +324,16 @@ export async function addWithdrawal(input: {
     note: input.note || null,
     created_by: input.createdBy || null,
   });
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteWithdrawal(id: string): Promise<void> {
+  const { error } = await supabase.from("withdrawals").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteExtraSale(id: string): Promise<void> {
+  const { error } = await supabase.from("extra_sales").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }
 

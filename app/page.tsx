@@ -21,6 +21,7 @@ import {
   CheckCircle2,
   Banknote,
   CalendarClock,
+  MoreHorizontal,
 } from "lucide-react";
 import { InvoiceForm } from "@/components/invoice-form";
 import { InvoiceList } from "@/components/invoice-list";
@@ -513,39 +514,6 @@ export default function HomePage() {
                 Invoices
               </Button>
               <Button
-                variant={currentView === "recent-completed" ? "default" : "ghost"}
-                onClick={() => setCurrentView("recent-completed")}
-                size="sm"
-                className="flex-1 sm:flex-none"
-              >
-                <CheckCircle2 className="h-4 w-4 mr-1" />
-                Completed
-              </Button>
-              <Button
-                variant={currentView === "recent-paid" ? "default" : "ghost"}
-                onClick={() => setCurrentView("recent-paid")}
-                size="sm"
-                className="flex-1 sm:flex-none"
-              >
-                <Banknote className="h-4 w-4 mr-1" />
-                Paid
-              </Button>
-              <Link href="/pickups">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="flex-1 sm:flex-none"
-                >
-                  <CalendarClock className="h-4 w-4 mr-1" />
-                  Pickup Schedule
-                  {urgentPickupsCount > 0 && (
-                    <span className="ml-2 bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
-                      {urgentPickupsCount}
-                    </span>
-                  )}
-                </Button>
-              </Link>
-              <Button
                 variant={currentView === "clients" ? "default" : "ghost"}
                 onClick={() => setCurrentView("clients")}
                 size="sm"
@@ -561,24 +529,46 @@ export default function HomePage() {
               >
                 Reports
               </Button>
-              <Link href="/daily-report">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="flex-1 sm:flex-none"
-                >
-                  <Banknote className="h-4 w-4 mr-1" />
-                  Daily Report
-                </Button>
-              </Link>
-              <Button
-                variant={currentView === "setup" ? "default" : "ghost"}
-                onClick={() => setCurrentView("setup")}
-                size="sm"
-                className="flex-1 sm:flex-none"
-              >
-                Setup
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="flex-1 sm:flex-none"
+                  >
+                    <MoreHorizontal className="h-4 w-4 mr-1" />
+                    More
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem
+                    onClick={() => setCurrentView("recent-completed")}
+                  >
+                    <CheckCircle2 className="h-4 w-4 mr-2" /> Completed
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCurrentView("recent-paid")}>
+                    <Banknote className="h-4 w-4 mr-2" /> Paid
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/pickups" className="flex items-center w-full">
+                      <CalendarClock className="h-4 w-4 mr-2" /> Pickup Schedule
+                      {urgentPickupsCount > 0 && (
+                        <span className="ml-auto bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
+                          {urgentPickupsCount}
+                        </span>
+                      )}
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/daily-report" className="flex items-center w-full">
+                      <FileText className="h-4 w-4 mr-2" /> Daily Cash Report
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCurrentView("setup")}>
+                    <Database className="h-4 w-4 mr-2" /> Setup
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               {currentUserPhone && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>

@@ -29,6 +29,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import {
   Printer,
   RefreshCw,
@@ -36,6 +37,7 @@ import {
   Plus,
   Wallet,
   TriangleAlert,
+  Trash2,
 } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency, getLocalDateString } from "@/lib/utils";
@@ -44,6 +46,8 @@ import type { MoneyAccount } from "@/lib/types";
 import {
   addExtraSale,
   addWithdrawal,
+  deleteExtraSale,
+  deleteWithdrawal,
   fetchDailyCashReport,
   parseLocalYmd,
   saveOpeningBalances,
@@ -53,12 +57,42 @@ import {
   type DailyCashReportData,
 } from "@/lib/daily-cash-report-model";
 
+// Short labels for the printed one-pager — the screen can afford the long ones.
+const SHORT_TYPE_LABELS: Record<string, string> = {
+  dry_cleaning: "Dry cleaning",
+  product: "Products",
+  extra: "Extras",
+  old_debt: "Old debt payments",
+};
+
+const ACCOUNT_SHORT: Record<string, string> = {
+  cleaner_phone: "Cleaner phone",
+  products_phone: "Products phone",
+  cash: "Cash",
+  unassigned: "Unassigned",
+  other: "Other",
+};
+
 const ACCOUNT_LABELS: Record<string, string> = {
   cleaner_phone: "Cleaner phone (MoMo)",
   products_phone: "Products phone (MoMo)",
   cash: "Cash",
   unassigned: "Unassigned (MoMo)",
   other: "Other (bank/card)",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  paid: "Paid",
+  partial: "Part paid",
+  unpaid: "Not paid",
+  pending: "Pending MoMo",
+};
+
+const STATUS_BADGE: Record<string, string> = {
+  paid: "bg-green-600 text-white hover:bg-green-600",
+  partial: "bg-blue-600 text-white hover:bg-blue-600",
+  unpaid: "bg-orange-500 text-white hover:bg-orange-500",
+  pending: "bg-amber-500 text-white hover:bg-amber-500",
 };
 
 function formatReportDate(ymd: string): string {
@@ -134,6 +168,14 @@ export function DailyCashReport() {
   const [saleMomo, setSaleMomo] = useState("");
   const [saleAccount, setSaleAccount] = useState<string>("auto");
   const [savingSale, setSavingSale] = useState(false);
+
+  // Deleting a mistaken withdrawal / manual sale.
+  const [pendingDelete, setPendingDelete] = useState<{
+    kind: "withdrawal" | "sale";
+    id: string;
+    label: string;
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const openOpeningDialog = () => {
     setOpeningCleaner(String(data?.opening?.openingCleanerPhone ?? 0));
@@ -260,26 +302,51 @@ export function DailyCashReport() {
     }
   };
 
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try {
+      if (pendingDelete.kind === "withdrawal") {
+        await deleteWithdrawal(pendingDelete.id);
+      } else {
+        await deleteExtraSale(pendingDelete.id);
+      }
+      toast({ title: `${pendingDelete.label} deleted` });
+      setPendingDelete(null);
+      if (loadedDate) await load(loadedDate);
+    } catch (error: any) {
+      toast({
+        title: "Could not delete the entry",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const exportExcel = () => {
     if (!model || !loadedDate) return;
     const wb = XLSX.utils.book_new();
 
     const salesSheet = XLSX.utils.json_to_sheet([
       ...model.rows.map((row) => ({
-        Items: row.items,
+        Item: row.items,
         Qty: row.qty,
         Cash: row.cash,
         MoMo: row.momo,
         Debt: row.debt,
         Total: row.total,
+        Status: STATUS_LABELS[row.status] || row.status,
       })),
       {
-        Items: "SUBTOTAL",
+        Item: "SUBTOTAL",
         Qty: model.rows.reduce((sum, row) => sum + row.qty, 0),
         Cash: model.cashReceived,
         MoMo: model.momoReceived,
         Debt: model.totalDebt,
         Total: model.totalAmount,
+        Status: "",
       },
     ]);
     XLSX.utils.book_append_sheet(wb, salesSheet, "Sales");
@@ -412,6 +479,9 @@ export function DailyCashReport() {
       </div>
 
       <div className="print-content container mx-auto px-4 pb-10 space-y-6">
+        {/* Screen / interactive view — the compact print view below replaces it
+            when printing, so the report fits on one A4 page. */}
+        <div className="print:hidden space-y-6">
         <div className="text-center space-y-1">
           <h2 className="text-lg sm:text-xl font-bold uppercase tracking-wide">
             CENTURY DRY CLEANER – DAILY REPORT
@@ -436,18 +506,37 @@ export function DailyCashReport() {
                 <table className="report-table w-full text-sm">
                   <thead>
                     <tr className="border-b">
-                      <th className="text-left p-2">Items</th>
+                      <th className="text-left p-2">Item</th>
                       <th className="text-right p-2">Qty</th>
                       <th className="text-right p-2">Cash</th>
                       <th className="text-right p-2">MoMo</th>
                       <th className="text-right p-2">Debt</th>
                       <th className="text-right p-2">Total</th>
+                      <th className="text-left p-2">Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {model.rows.map((row) => (
                       <tr key={row.key} className="border-b">
-                        <td className="p-2">{row.items}</td>
+                        <td className="p-2">
+                          {row.items}
+                          {row.deletable && row.sourceId && (
+                            <button
+                              type="button"
+                              title="Delete this sale"
+                              onClick={() =>
+                                setPendingDelete({
+                                  kind: "sale",
+                                  id: row.sourceId as string,
+                                  label: row.items,
+                                })
+                              }
+                              className="no-print ml-2 align-middle text-red-600 hover:text-red-800"
+                            >
+                              <Trash2 className="h-3.5 w-3.5 inline" />
+                            </button>
+                          )}
+                        </td>
                         <td className="p-2 text-right">{row.qty}</td>
                         <td className="p-2 text-right">
                           {row.cash ? formatCurrency(row.cash) : "—"}
@@ -461,11 +550,16 @@ export function DailyCashReport() {
                         <td className="p-2 text-right font-medium">
                           {formatCurrency(row.total)}
                         </td>
+                        <td className="p-2">
+                          <Badge className={STATUS_BADGE[row.status] || ""}>
+                            {STATUS_LABELS[row.status] || row.status}
+                          </Badge>
+                        </td>
                       </tr>
                     ))}
                     {model.rows.length === 0 && (
                       <tr>
-                        <td className="p-2 text-muted-foreground" colSpan={6}>
+                        <td className="p-2 text-muted-foreground" colSpan={7}>
                           No sales recorded for this date.
                         </td>
                       </tr>
@@ -489,6 +583,7 @@ export function DailyCashReport() {
                       <td className="p-2 text-right">
                         {formatCurrency(model.totalAmount)}
                       </td>
+                      <td className="p-2" />
                     </tr>
                   </tfoot>
                 </table>
@@ -539,17 +634,9 @@ export function DailyCashReport() {
                     </span>
                   </div>
                   <div className="flex justify-between border-b pb-1">
-                    <span>Old debt received today</span>
+                    <span>Of which old debt (included above)</span>
                     <span className="font-semibold">
                       {formatCurrency(model.oldDebtReceived)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between border-b pb-1">
-                    <span>Total money received today</span>
-                    <span className="font-semibold">
-                      {formatCurrency(
-                        model.totalReceived + model.oldDebtReceived
-                      )}
                     </span>
                   </div>
                 </div>
@@ -712,7 +799,7 @@ export function DailyCashReport() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">
-                  E. Old debt payments received today
+                  E. Old debt payments received today (also rows in A)
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
@@ -727,6 +814,7 @@ export function DailyCashReport() {
                         <thead>
                           <tr className="border-b">
                             <th className="text-left p-2">Time</th>
+                            <th className="text-left p-2">Items</th>
                             <th className="text-left p-2">Method</th>
                             <th className="text-right p-2">Amount</th>
                           </tr>
@@ -735,6 +823,7 @@ export function DailyCashReport() {
                           {model.oldDebtList.map((entry) => (
                             <tr key={entry.key} className="border-b">
                               <td className="p-2">{entry.time}</td>
+                              <td className="p-2">{entry.items}</td>
                               <td className="p-2">
                                 {entry.method}
                                 {entry.pending ? " — pending confirmation" : ""}
@@ -747,7 +836,7 @@ export function DailyCashReport() {
                         </tbody>
                         <tfoot>
                           <tr className="border-t-2 font-semibold">
-                            <td className="p-2" colSpan={2}>
+                            <td className="p-2" colSpan={3}>
                               Received today (confirmed)
                             </td>
                             <td className="p-2 text-right">
@@ -794,6 +883,20 @@ export function DailyCashReport() {
                           <td className="p-2">{withdrawal.note || "—"}</td>
                           <td className="p-2 text-right">
                             {formatCurrency(withdrawal.amount)}
+                            <button
+                              type="button"
+                              title="Delete this withdrawal"
+                              onClick={() =>
+                                setPendingDelete({
+                                  kind: "withdrawal",
+                                  id: withdrawal.id,
+                                  label: `${ACCOUNT_SHORT[withdrawal.account] || ""} withdrawal ${formatCurrency(withdrawal.amount)}`,
+                                })
+                              }
+                              className="no-print ml-2 align-middle text-red-600 hover:text-red-800"
+                            >
+                              <Trash2 className="h-3.5 w-3.5 inline" />
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -819,9 +922,9 @@ export function DailyCashReport() {
                 </div>
                 <div className="flex justify-between border-t pt-2 text-sm font-semibold">
                   <span>
-                    Net = total money received today (
-                    {formatCurrency(model.totalReceived + model.oldDebtReceived)}
-                    ) − withdrawals ({formatCurrency(model.totalWithdrawals)})
+                    Net = total amount received (
+                    {formatCurrency(model.totalReceived)}) − withdrawals (
+                    {formatCurrency(model.totalWithdrawals)})
                   </span>
                   <span>{formatCurrency(model.net)}</span>
                 </div>
@@ -862,6 +965,269 @@ export function DailyCashReport() {
               </div>
             </div>
           </>
+        )}
+        </div>
+
+        {/* PRINT — one dense A4 page, no cards, no long labels. */}
+        {model && (
+          <div className="hidden print:block print-compact">
+            <div className="flex items-baseline justify-between border-b-2 border-black pb-1 mb-1">
+              <h2 className="font-bold uppercase">
+                CENTURY DRY CLEANER – DAILY REPORT
+              </h2>
+              <span>{formatReportDate(reportDate)}</span>
+            </div>
+
+            <h3 className="font-bold">A. SALES</h3>
+            <table className="report-table w-full">
+              <thead>
+                <tr>
+                  <th className="text-left">Item</th>
+                  <th className="text-right">Qty</th>
+                  <th className="text-right">Cash</th>
+                  <th className="text-right">MoMo</th>
+                  <th className="text-right">Debt</th>
+                  <th className="text-right">Total</th>
+                  <th className="text-left">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {model.rows.map((row) => (
+                  <tr key={row.key}>
+                    <td>{row.items}</td>
+                    <td className="text-right">{row.qty}</td>
+                    <td className="text-right">
+                      {row.cash ? formatCurrency(row.cash) : "—"}
+                    </td>
+                    <td className="text-right">
+                      {row.momo ? formatCurrency(row.momo) : "—"}
+                    </td>
+                    <td className="text-right">
+                      {row.debt ? formatCurrency(row.debt) : "—"}
+                    </td>
+                    <td className="text-right">{formatCurrency(row.total)}</td>
+                    <td>{STATUS_LABELS[row.status] || row.status}</td>
+                  </tr>
+                ))}
+                {model.rows.length === 0 && (
+                  <tr>
+                    <td colSpan={7}>No sales.</td>
+                  </tr>
+                )}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td className="font-bold">SUBTOTAL</td>
+                  <td className="text-right font-bold">
+                    {model.rows.reduce((sum, row) => sum + row.qty, 0)}
+                  </td>
+                  <td className="text-right font-bold">
+                    {formatCurrency(model.cashReceived)}
+                  </td>
+                  <td className="text-right font-bold">
+                    {formatCurrency(model.momoReceived)}
+                  </td>
+                  <td className="text-right font-bold">
+                    {formatCurrency(model.totalDebt)}
+                  </td>
+                  <td className="text-right font-bold">
+                    {formatCurrency(model.totalAmount)}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+
+            <div className="grid grid-cols-2 gap-x-4">
+              <div>
+                <h3 className="font-bold">B. TOTALS</h3>
+                <table className="report-table w-full">
+                  <tbody>
+                    <tr>
+                      <td>Cash received</td>
+                      <td className="text-right">
+                        {formatCurrency(model.cashReceived)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>MoMo received</td>
+                      <td className="text-right">
+                        {formatCurrency(model.momoReceived)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Total amount</td>
+                      <td className="text-right">
+                        {formatCurrency(model.totalAmount)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Outstanding debt</td>
+                      <td className="text-right">
+                        {formatCurrency(model.totalDebt)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Received (total − debt)</td>
+                      <td className="text-right">
+                        {formatCurrency(model.totalReceived)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Pending MoMo</td>
+                      <td className="text-right">
+                        {formatCurrency(model.pendingMomo)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Of which old debt (included above)</td>
+                      <td className="text-right">
+                        {formatCurrency(model.oldDebtReceived)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                {!model.checkPasses && (
+                  <p className="font-bold">
+                    TOTALS DO NOT MATCH — {model.checkCauses.join(" ")}
+                  </p>
+                )}
+              </div>
+              <div>
+                <h3 className="font-bold">C. MONEY BY ACCOUNT</h3>
+                <table className="report-table w-full">
+                  <thead>
+                    <tr>
+                      <th className="text-left">Account</th>
+                      <th className="text-right">Opening</th>
+                      <th className="text-right">Received</th>
+                      <th className="text-right">Out</th>
+                      <th className="text-right">Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {model.accounts.map((account) => (
+                      <tr key={account.account}>
+                        <td>
+                          {ACCOUNT_SHORT[account.account] || account.account}
+                        </td>
+                        <td className="text-right">
+                          {formatCurrency(account.opening)}
+                        </td>
+                        <td className="text-right">
+                          {formatCurrency(account.received)}
+                        </td>
+                        <td className="text-right">
+                          {formatCurrency(account.withdrawn)}
+                        </td>
+                        <td className="text-right">
+                          {formatCurrency(account.balance)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-x-4">
+              <div>
+                <h3 className="font-bold">D. SALES BY TYPE</h3>
+                <table className="report-table w-full">
+                  <thead>
+                    <tr>
+                      <th className="text-left">Type</th>
+                      <th className="text-right">No.</th>
+                      <th className="text-right">Billed</th>
+                      <th className="text-right">Received</th>
+                      <th className="text-right">Unpaid</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {model.byType.map((type) => (
+                      <tr key={type.key}>
+                        <td>{SHORT_TYPE_LABELS[type.key] || type.label}</td>
+                        <td className="text-right">{type.count}</td>
+                        <td className="text-right">
+                          {formatCurrency(type.billed)}
+                        </td>
+                        <td className="text-right">
+                          {formatCurrency(type.received)}
+                        </td>
+                        <td className="text-right">
+                          {formatCurrency(type.unpaid)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <h3 className="font-bold">F. WITHDRAWALS</h3>
+                <table className="report-table w-full">
+                  <thead>
+                    <tr>
+                      <th className="text-left">Account</th>
+                      <th className="text-left">Note</th>
+                      <th className="text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data?.withdrawals.map((withdrawal) => (
+                      <tr key={withdrawal.id}>
+                        <td>
+                          {ACCOUNT_SHORT[withdrawal.account] ||
+                            withdrawal.account}
+                        </td>
+                        <td>{withdrawal.note || "—"}</td>
+                        <td className="text-right">
+                          {formatCurrency(withdrawal.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                    {!data?.withdrawals.length && (
+                      <tr>
+                        <td colSpan={3}>None.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+                <p className="font-bold">
+                  Net (received − withdrawals): {formatCurrency(model.net)}
+                </p>
+              </div>
+            </div>
+
+            <h3 className="font-bold">E. OLD DEBT RECEIVED TODAY</h3>
+            <p>
+              {model.oldDebtList.length === 0
+                ? "None."
+                : `${model.oldDebtList
+                    .map(
+                      (entry) =>
+                        `${entry.time} — ${entry.items} — ${
+                          entry.method
+                        } ${formatCurrency(entry.amount)}${
+                          entry.pending ? " (pending)" : ""
+                        }`
+                    )
+                    .join("  ·  ")}  — total ${formatCurrency(
+                    model.oldDebtReceived
+                  )}`}
+            </p>
+
+            <h3 className="font-bold">G. NOTES</h3>
+            <p>
+              {model.notes.length === 0
+                ? "None."
+                : model.notes.join("  ·  ")}
+            </p>
+
+            <div className="mt-2 flex justify-between">
+              <span>Prepared by ______________________</span>
+              <span>Manager signature ______________________</span>
+            </div>
+          </div>
         )}
       </div>
 
@@ -1071,6 +1437,41 @@ export function DailyCashReport() {
               className="w-full sm:w-auto"
             >
               {savingSale ? "Saving..." : "Save sale"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete a mistaken withdrawal / manual sale */}
+      <Dialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete this entry?</DialogTitle>
+            <DialogDescription>
+              {pendingDelete
+                ? `${pendingDelete.label} will be removed from this day's report. This cannot be undone.`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setPendingDelete(null)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={deleting}
+            >
+              {deleting ? "Deleting..." : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>

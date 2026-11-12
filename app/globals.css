@@ -141,6 +141,37 @@
     border-radius: 0 !important;
   }
 
+  /* The printed daily report is a dedicated compact block: one A4 page. */
+  .print-compact {
+    font-size: 9.5px;
+    line-height: 1.25;
+    page-break-inside: avoid;
+  }
+
+  .print-compact h2 {
+    font-size: 13px;
+  }
+
+  .print-compact h3 {
+    font-size: 9.5px;
+    margin: 5px 0 1px;
+    letter-spacing: 0.02em;
+  }
+
+  .print-compact table {
+    margin: 0;
+  }
+
+  .print-compact .report-table th,
+  .print-compact .report-table td {
+    padding: 1px 3px;
+    font-size: 9.5px;
+  }
+
+  .print-compact p {
+    margin: 1px 0 0;
+  }
+
   .print-content [class*="shadow"] {
     box-shadow: none !important;
   }

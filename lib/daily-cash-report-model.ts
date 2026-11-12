@@ -9,6 +9,8 @@ import type { MoneyAccount, PaymentStatus } from "./types";
 export interface ReportSaleItem {
   description: string;
   quantity: number;
+  // Line price, used to split an invoice's total and payments across items.
+  totalPrice?: number;
 }
 
 export interface ReportInvoicePayment {
@@ -155,16 +157,46 @@ export function classifyInvoice(invoice: ReportInvoice): SaleCategory {
     : "dry_cleaning";
 }
 
-export function summarizeItems(invoice: ReportInvoice): string {
-  if (!invoice.items || invoice.items.length === 0) return "No items recorded";
+// "single coat x1, Tie x2" — used in the item-level table header rows and in
+// the old-debt list, never with a client name or invoice number.
+export function summarizeItemList(items: ReportSaleItem[]): string {
+  if (!items || items.length === 0) return "—";
   const grouped = new Map<string, number>();
-  for (const item of invoice.items) {
+  for (const item of items) {
     const name = shortItemName(item.description);
     grouped.set(name, (grouped.get(name) || 0) + item.quantity);
   }
   return Array.from(grouped.entries())
     .map(([name, qty]) => `${name} x${qty}`)
     .join(", ");
+}
+
+// Splits an amount across lines proportionally; the last line takes the
+// rounding remainder so the parts always add back to the whole.
+export function allocate(total: number, shares: number[]): number[] {
+  const out: number[] = [];
+  let used = 0;
+  shares.forEach((share, index) => {
+    if (index === shares.length - 1) {
+      out.push(round2(total - used));
+    } else {
+      const value = round2(total * share);
+      used = round2(used + value);
+      out.push(value);
+    }
+  });
+  return out;
+}
+
+function rowStatus(
+  paid: number,
+  pendingMomo: number,
+  debt: number
+): "paid" | "partial" | "unpaid" | "pending" {
+  if (debt <= 0.5) return "paid";
+  if (paid > 0) return "partial";
+  if (pendingMomo > 0) return "pending";
+  return "unpaid";
 }
 
 // Which account a payment landed in. A stored account always wins; otherwise
@@ -186,6 +218,7 @@ export function resolveAccount(
 
 export interface SaleRow {
   key: string;
+  // One row per item line ("single coat"), not per invoice.
   items: string;
   qty: number;
   cash: number;
@@ -196,6 +229,13 @@ export interface SaleRow {
   debt: number;
   category: SaleCategory;
   time: number;
+  status: "paid" | "partial" | "unpaid" | "pending";
+  // Money collected today for an invoice created on an earlier day.
+  oldDebt?: boolean;
+  // Set on rows that came from a manual product/extra sale, so the UI can
+  // offer a delete for it. Invoice item rows never carry this.
+  sourceId?: string;
+  deletable?: boolean;
 }
 
 export interface AccountRow {
@@ -230,6 +270,7 @@ export interface ReportModel {
   oldDebtList: {
     key: string;
     time: string;
+    items: string;
     method: string;
     amount: number;
     pending: boolean;
@@ -308,21 +349,63 @@ export function buildReport(
       addToAccount(payment.method, payment.account, category, payment.amount);
     }
 
-    rows.push({
-      key: `inv-${invoice.id}`,
-      items: summarizeItems(invoice),
-      qty: invoice.items.reduce((sum, item) => sum + item.quantity, 0),
-      cash,
-      momo,
-      pendingMomo,
-      other,
-      total: invoice.total,
-      debt: Math.max(
+    // One row per item the client brought, with that item's share of the
+    // invoice total and of what was paid on it. Shares are proportional to the
+    // line prices, so the item rows still add up to the invoice exactly.
+    const lines =
+      invoice.items.length > 0
+        ? invoice.items
+        : [
+            {
+              description: "No items recorded",
+              quantity: 0,
+              totalPrice: invoice.total,
+            },
+          ];
+    const weightTotal = lines.reduce(
+      (sum, item) => sum + Math.max(0, item.totalPrice ?? 0),
+      0
+    );
+    const shares = lines.map((item) =>
+      weightTotal > 0
+        ? Math.max(0, item.totalPrice ?? 0) / weightTotal
+        : 1 / lines.length
+    );
+
+    const totalShares = allocate(invoice.total, shares);
+    const cashShares = allocate(cash, shares);
+    const momoShares = allocate(momo, shares);
+    const pendingShares = allocate(pendingMomo, shares);
+    const otherShares = allocate(other, shares);
+    const time = Date.parse(invoice.createdAt);
+
+    lines.forEach((item, index) => {
+      const lineCash = cashShares[index];
+      const lineMomo = momoShares[index];
+      const linePending = pendingShares[index];
+      const lineOther = otherShares[index];
+      const lineTotal = totalShares[index];
+      const lineDebt = Math.max(
         0,
-        round2(invoice.total - (cash + momo + pendingMomo + other))
-      ),
-      category,
-      time: Date.parse(invoice.createdAt),
+        round2(lineTotal - (lineCash + lineMomo + linePending + lineOther))
+      );
+
+      rows.push({
+        key: `item-${invoice.id}-${index}`,
+        items: shortItemName(item.description),
+        qty: item.quantity,
+        cash: lineCash,
+        momo: lineMomo,
+        pendingMomo: linePending,
+        other: lineOther,
+        total: lineTotal,
+        debt: lineDebt,
+        category: isProductLine(item.description)
+          ? "product"
+          : "dry_cleaning",
+        time,
+        status: rowStatus(lineCash + lineMomo + lineOther, linePending, lineDebt),
+      });
     });
   }
 
@@ -350,6 +433,18 @@ export function buildReport(
       ),
       category,
       time: Date.parse(sale.soldAt),
+      sourceId: sale.id,
+      deletable: true,
+      status: rowStatus(
+        sale.amountPaidCash + sale.amountPaidMomo,
+        0,
+        Math.max(
+          0,
+          round2(
+            sale.totalPrice - (sale.amountPaidCash + sale.amountPaidMomo)
+          )
+        )
+      ),
     });
   }
 
@@ -379,6 +474,7 @@ export function buildReport(
         hour: "2-digit",
         minute: "2-digit",
       }),
+      items: summarizeItemList(items),
       method: METHOD_LABELS[payment.method] || payment.method,
       amount: payment.amount,
       pending: payment.status === "pending",
@@ -396,7 +492,32 @@ export function buildReport(
     addToAccount(payment.method, payment.account, category, payment.amount);
 
     oldDebtList.push(entry);
+
+    // Also show it as a row in today's sales table: this item was collected
+    // today, so it belongs with the day's money. Its "total" is the amount
+    // received (there is no new billing — the invoice was billed earlier).
+    rows.push({
+      key: `old-${payment.id}`,
+      items: summarizeItemList(items),
+      qty: items.reduce((sum, item) => sum + item.quantity, 0),
+      cash: payment.method === "CASH" ? payment.amount : 0,
+      momo: payment.method === "MOMO" ? payment.amount : 0,
+      pendingMomo: 0,
+      other:
+        payment.method === "CASH" || payment.method === "MOMO"
+          ? 0
+          : payment.amount,
+      total: payment.amount,
+      debt: 0,
+      category,
+      time: Date.parse(payment.createdAt),
+      status: "paid",
+      oldDebt: true,
+    });
   }
+
+  // Old-debt rows were added after the first sort, so order the table again.
+  rows.sort((a, b) => a.time - b.time);
 
   const cashReceived = round2(rows.reduce((sum, row) => sum + row.cash, 0));
   const momoReceived = round2(rows.reduce((sum, row) => sum + row.momo, 0));
@@ -477,10 +598,14 @@ export function buildReport(
   const totalWithdrawals = round2(
     data.withdrawals.reduce((sum, withdrawal) => sum + withdrawal.amount, 0)
   );
-  const net = round2(totalReceived + oldDebtReceived - totalWithdrawals);
+  // Old-debt money is now part of the table's received amount, so it must not
+  // be added a second time here.
+  const net = round2(totalReceived - totalWithdrawals);
 
   const sumType = (category: SaleCategory) => {
-    const matching = rows.filter((row) => row.category === category);
+    const matching = rows.filter(
+      (row) => !row.oldDebt && row.category === category
+    );
     return {
       count: matching.length,
       billed: round2(matching.reduce((sum, row) => sum + row.total, 0)),
@@ -506,10 +631,18 @@ export function buildReport(
     {
       key: "old_debt",
       label: "Old debt payments",
-      count: oldDebtList.filter((entry) => !entry.pending).length,
-      billed: 0,
-      received: round2(oldDebtReceived),
-      unpaid: 0,
+      count: rows.filter((row) => row.oldDebt).length,
+      billed: round2(
+        rows.filter((row) => row.oldDebt).reduce((sum, row) => sum + row.total, 0)
+      ),
+      received: round2(
+        rows
+          .filter((row) => row.oldDebt)
+          .reduce((sum, row) => sum + row.cash + row.momo + row.other, 0)
+      ),
+      unpaid: round2(
+        rows.filter((row) => row.oldDebt).reduce((sum, row) => sum + row.debt, 0)
+      ),
     },
   ];
 
@@ -538,7 +671,7 @@ export function buildReport(
   }
   if (oldDebtList.length > 0) {
     notes.push(
-      `${oldDebtList.length} payment(s) received today belong to invoices created on a different date (old debt) — included in received, not in today's billing.`
+      `${oldDebtList.length} payment(s) received today belong to invoices created on a different date (old debt) — they are rows in A and count as money received today, but they are not new billing.`
     );
   }
   if (cancelledCount > 0) {
