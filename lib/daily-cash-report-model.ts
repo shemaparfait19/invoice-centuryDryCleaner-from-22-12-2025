@@ -4,7 +4,7 @@
 // export.
 
 import { formatCurrency } from "./utils";
-import { canonicalItemName } from "./item-catalog";
+import { canonicalItemName, parseItemLine } from "./item-catalog";
 import type { MoneyAccount, PaymentStatus } from "./types";
 
 export interface ReportSaleItem {
@@ -353,10 +353,12 @@ export function buildReport(
       addToAccount(payment.method, payment.account, category, payment.amount);
     }
 
-    // One row per item the client brought, with that item's share of the
-    // invoice total and of what was paid on it. Shares are proportional to the
-    // line prices, so the item rows still add up to the invoice exactly.
-    const lines =
+    // Rebuild the invoice element by element: one row per item the client
+    // brought, carrying that item's OWN amount (quantity × price), and its
+    // share of whatever was paid on the invoice. Only when the invoice total
+    // does not equal the sum of its lines (a discount or an adjustment) are the
+    // line amounts scaled, so the rows still add up to the invoice exactly.
+    const sourceLines =
       invoice.items.length > 0
         ? invoice.items
         : [
@@ -366,17 +368,72 @@ export function buildReport(
               totalPrice: invoice.total,
             },
           ];
-    const weightTotal = lines.reduce(
-      (sum, item) => sum + Math.max(0, item.totalPrice ?? 0),
-      0
-    );
-    const shares = lines.map((item) =>
-      weightTotal > 0
-        ? Math.max(0, item.totalPrice ?? 0) / weightTotal
-        : 1 / lines.length
-    );
+    // A line may name several garments ("Shirt x4, Underpants x5, Socks x3");
+    // break it into one row per garment, sharing that line's money by piece.
+    const lines: { description: string; quantity: number; totalPrice: number }[] =
+      [];
+    for (const line of sourceLines) {
+      const money = Math.max(0, line.totalPrice ?? 0);
+      const pieces = parseItemLine(line.description || "");
+      if (!pieces || pieces.length === 0) {
+        lines.push({
+          description: line.description,
+          quantity: line.quantity,
+          totalPrice: money,
+        });
+        continue;
+      }
+      if (pieces.length === 1) {
+        lines.push({
+          description: pieces[0].name,
+          quantity: pieces[0].quantity || line.quantity,
+          totalPrice: money,
+        });
+        continue;
+      }
+      const pieceCount = pieces.reduce((sum, piece) => sum + piece.quantity, 0);
+      const perPiece = pieceCount > 0 ? money / pieceCount : 0;
+      let given = 0;
+      pieces.forEach((piece, index) => {
+        const amount =
+          index === pieces.length - 1
+            ? round2(money - given)
+            : round2(perPiece * piece.quantity);
+        given = round2(given + amount);
+        lines.push({
+          description: piece.name,
+          quantity: piece.quantity,
+          totalPrice: amount,
+        });
+      });
+    }
+    const linePrices = lines.map((item) => Math.max(0, item.totalPrice ?? 0));
+    const weightTotal = linePrices.reduce((sum, price) => sum + price, 0);
+    const lineSum = round2(weightTotal);
+    // With no usable line prices, split by quantity rather than evenly.
+    const fallbackWeights = lines.map((item) => Math.max(0, item.quantity));
+    const fallbackTotal = fallbackWeights.reduce((sum, qty) => sum + qty, 0);
+    const shares = lines.map((item, index) => {
+      if (weightTotal > 0) return linePrices[index] / weightTotal;
+      return fallbackTotal > 0
+        ? fallbackWeights[index] / fallbackTotal
+        : 1 / lines.length;
+    });
 
-    const totalShares = allocate(invoice.total, shares);
+    let totalShares: number[];
+    if (weightTotal > 0 && Math.abs(lineSum - invoice.total) <= 0.5) {
+      // Normal case: the item amounts are the invoice amounts.
+      totalShares = linePrices.map((price) => round2(price));
+      const remainder = round2(
+        invoice.total - totalShares.reduce((sum, value) => sum + value, 0)
+      );
+      const last = totalShares.length - 1;
+      totalShares[last] = round2(totalShares[last] + remainder);
+    } else {
+      // No line prices, or the invoice total was adjusted: scale the lines.
+      totalShares = allocate(invoice.total, shares);
+    }
+
     const cashShares = allocate(cash, shares);
     const momoShares = allocate(momo, shares);
     const pendingShares = allocate(pendingMomo, shares);
