@@ -55,6 +55,7 @@ import {
 import {
   buildReport,
   type DailyCashReportData,
+  type ReportTableRow,
 } from "@/lib/daily-cash-report-model";
 import { PRODUCT_ITEM_NAMES } from "@/lib/item-catalog";
 
@@ -143,6 +144,15 @@ export function DailyCashReport() {
     () => (data && loadedDate ? buildReport(data, loadedDate) : null),
     [data, loadedDate]
   );
+
+  // A. Sales can be read garment by garment (default) or invoice by invoice.
+  const [salesView, setSalesView] = useState<"item" | "invoice">("item");
+  const salesRows: ReportTableRow[] = model
+    ? salesView === "invoice"
+      ? model.invoiceRows
+      : model.rows
+    : [];
+  const salesQty = salesRows.reduce((sum, row) => sum + row.qty, 0);
 
   // --- dialogs ------------------------------------------------------------
   const [openingOpen, setOpeningOpen] = useState(false);
@@ -506,15 +516,37 @@ export function DailyCashReport() {
             {/* A. MAIN TABLE */}
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">A. Sales</CardTitle>
-                {model.itemCounts.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Items today:{" "}
-                    {model.itemCounts
-                      .map((item) => `${item.name} ${item.qty}`)
-                      .join(" · ")}
-                  </p>
-                )}
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <CardTitle className="text-base">A. Sales</CardTitle>
+                    {model.itemCounts.length > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Items today:{" "}
+                        {model.itemCounts
+                          .map((item) => `${item.name} ${item.qty}`)
+                          .join(" · ")}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant={salesView === "item" ? "default" : "outline"}
+                      onClick={() => setSalesView("item")}
+                    >
+                      By item
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={
+                        salesView === "invoice" ? "default" : "outline"
+                      }
+                      onClick={() => setSalesView("invoice")}
+                    >
+                      By invoice
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="overflow-x-auto">
                 <table className="report-table w-full text-sm">
@@ -530,7 +562,7 @@ export function DailyCashReport() {
                     </tr>
                   </thead>
                   <tbody>
-                    {model.rows.map((row) => (
+                    {salesRows.map((row) => (
                       <tr key={row.key} className="border-b">
                         <td className="p-2">
                           {row.items}
@@ -571,7 +603,7 @@ export function DailyCashReport() {
                         </td>
                       </tr>
                     ))}
-                    {model.rows.length === 0 && (
+                    {salesRows.length === 0 && (
                       <tr>
                         <td className="p-2 text-muted-foreground" colSpan={7}>
                           No sales recorded for this date.
@@ -583,7 +615,7 @@ export function DailyCashReport() {
                     <tr className="border-t-2 font-semibold">
                       <td className="p-2">SUBTOTAL</td>
                       <td className="p-2 text-right">
-                        {model.rows.reduce((sum, row) => sum + row.qty, 0)}
+                        {salesQty}
                       </td>
                       <td className="p-2 text-right">
                         {formatCurrency(model.cashReceived)}
@@ -992,7 +1024,9 @@ export function DailyCashReport() {
               <span>{formatReportDate(reportDate)}</span>
             </div>
 
-            <h3 className="font-bold">A. SALES</h3>
+            <h3 className="font-bold">
+              A. SALES — {salesView === "invoice" ? "BY INVOICE" : "BY ITEM"}
+            </h3>
             <table className="report-table w-full">
               <thead>
                 <tr>
@@ -1006,7 +1040,7 @@ export function DailyCashReport() {
                 </tr>
               </thead>
               <tbody>
-                {model.rows.map((row) => (
+                {salesRows.map((row) => (
                   <tr key={row.key}>
                     <td>{row.items}</td>
                     <td className="text-right">{row.qty}</td>
@@ -1023,7 +1057,7 @@ export function DailyCashReport() {
                     <td>{STATUS_LABELS[row.status] || row.status}</td>
                   </tr>
                 ))}
-                {model.rows.length === 0 && (
+                {salesRows.length === 0 && (
                   <tr>
                     <td colSpan={7}>No sales.</td>
                   </tr>
@@ -1032,9 +1066,7 @@ export function DailyCashReport() {
               <tfoot>
                 <tr>
                   <td className="font-bold">SUBTOTAL</td>
-                  <td className="text-right font-bold">
-                    {model.rows.reduce((sum, row) => sum + row.qty, 0)}
-                  </td>
+                  <td className="text-right font-bold">{salesQty}</td>
                   <td className="text-right font-bold">
                     {formatCurrency(model.cashReceived)}
                   </td>

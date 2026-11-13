@@ -288,6 +288,23 @@ export interface SaleRow {
   deletable?: boolean;
 }
 
+// A row of the A. Sales table in either view. "By item" rows come from
+// SaleRow; "by invoice" rows show one invoice with its items listed.
+export interface ReportTableRow {
+  key: string;
+  items: string;
+  qty: number;
+  cash: number;
+  momo: number;
+  debt: number;
+  total: number;
+  status: "paid" | "partial" | "unpaid" | "pending";
+  time?: number;
+  deletable?: boolean;
+  sourceId?: string;
+  oldDebt?: boolean;
+}
+
 export interface AccountRow {
   account: MoneyAccount | "unassigned";
   opening: number;
@@ -307,6 +324,8 @@ export interface TypeRow {
 
 export interface ReportModel {
   rows: SaleRow[];
+  // Same day, seen invoice by invoice: "Shirt x6, Pants x1 — paid / part paid".
+  invoiceRows: ReportTableRow[];
   cashReceived: number;
   momoReceived: number;
   otherReceived: number;
@@ -360,6 +379,7 @@ export function buildReport(
   };
 
   const rows: SaleRow[] = [];
+  const invoiceRows: ReportTableRow[] = [];
   let cancelledCount = 0;
   let missingItems = 0;
 
@@ -453,6 +473,7 @@ export function buildReport(
     const otherShares = allocate(other, shares);
     const time = Date.parse(invoice.createdAt);
 
+    const invoiceRowStart = rows.length;
     lines.forEach((item, index) => {
       const lineCash = cashShares[index];
       const lineMomo = momoShares[index];
@@ -480,6 +501,43 @@ export function buildReport(
         time,
         status: rowStatus(lineCash + lineMomo + lineOther, linePending, lineDebt),
       });
+    });
+
+    // The same invoice collapsed into one row, for the "by invoice" view.
+    const invoiceLines = rows.slice(invoiceRowStart);
+    const invoiceDebt = round2(
+      invoiceLines.reduce((sum, row) => sum + row.debt, 0)
+    );
+    const invoicePaid = round2(
+      invoiceLines.reduce(
+        (sum, row) => sum + row.cash + row.momo + row.other,
+        0
+      )
+    );
+    const invoicePending = round2(
+      invoiceLines.reduce((sum, row) => sum + row.pendingMomo, 0)
+    );
+    const invoiceTimeLabel = new Date(time).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    invoiceRows.push({
+      key: `inv-${invoice.id}`,
+      items: `${invoiceTimeLabel} · ${lines
+        .map(
+          (line) =>
+            `${canonicalItemName(
+              shortItemName(line.description)
+            )} x${line.quantity}`
+        )
+        .join(", ")}`,
+      qty: invoiceLines.reduce((sum, row) => sum + row.qty, 0),
+      cash: round2(invoiceLines.reduce((sum, row) => sum + row.cash, 0)),
+      momo: round2(invoiceLines.reduce((sum, row) => sum + row.momo, 0)),
+      debt: invoiceDebt,
+      total: round2(invoiceLines.reduce((sum, row) => sum + row.total, 0)),
+      status: rowStatus(invoicePaid, invoicePending, invoiceDebt),
+      time,
     });
   }
 
@@ -622,6 +680,24 @@ export function buildReport(
         oldDebt: true,
       });
     });
+
+    // One row for the collection itself in the "by invoice" view: it is money
+    // for an invoice billed on an earlier day, so it reads as that invoice.
+    invoiceRows.push({
+      key: `old-inv-${payment.id}`,
+      items: `${new Date(payment.createdAt).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })} · ${summarizeItemList(items)} (old debt)`,
+      qty: items.reduce((sum, item) => sum + item.quantity, 0),
+      cash: payment.method === "CASH" ? payment.amount : 0,
+      momo: payment.method === "MOMO" ? payment.amount : 0,
+      debt: 0,
+      total: payment.amount,
+      status: "paid",
+      oldDebt: true,
+      time: Date.parse(payment.createdAt),
+    });
   }
 
   // Deconstruct the day's invoices and rebuild them garment by garment: the
@@ -662,6 +738,7 @@ export function buildReport(
 
   // Old-debt rows were added after the first sort, so order the table again.
   rows.sort((a, b) => a.time - b.time);
+  invoiceRows.sort((a, b) => (a.time || 0) - (b.time || 0));
 
   const cashReceived = round2(rows.reduce((sum, row) => sum + row.cash, 0));
   const momoReceived = round2(rows.reduce((sum, row) => sum + row.momo, 0));
@@ -861,6 +938,7 @@ export function buildReport(
     net,
     byType,
     itemCounts,
+    invoiceRows,
     checkPasses: Math.abs(checkDifference) <= 0.5,
     checkDifference,
     checkCauses,
