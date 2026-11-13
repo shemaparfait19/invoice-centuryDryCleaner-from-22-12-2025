@@ -1061,7 +1061,7 @@ export function DailyCashReport() {
               </p>
             )}
 
-                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0 border-t-2 border-black pt-1">
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0 border-t-2 border-black pt-1">
               <span>
                 CASH <strong>{formatCurrency(model.cashReceived)}</strong>
               </span>
@@ -1089,19 +1089,152 @@ export function DailyCashReport() {
               </span>
             </div>
 
-            {model.accounts.some(
-              (account) => account.opening !== 0 || account.withdrawn !== 0
-            ) && (
+            <h3 className="font-bold">B. MONEY</h3>
+            <table className="report-table w-full">
+              <thead>
+                <tr>
+                  <th className="text-left">Account</th>
+                  <th className="text-right">Opening</th>
+                  <th className="text-right">Received</th>
+                  <th className="text-right">Out</th>
+                  <th className="text-right">Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {model.accounts.map((account) => (
+                  <tr key={account.account}>
+                    <td>{ACCOUNT_SHORT[account.account] || account.account}</td>
+                    <td className="text-right">
+                      {formatCurrency(account.opening)}
+                    </td>
+                    <td className="text-right">
+                      {formatCurrency(account.received)}
+                    </td>
+                    <td className="text-right">
+                      {formatCurrency(account.withdrawn)}
+                    </td>
+                    <td className="text-right">
+                      {formatCurrency(account.balance)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td className="font-bold">TOTAL</td>
+                  <td className="text-right font-bold">
+                    {formatCurrency(
+                      model.accounts.reduce(
+                        (sum, account) => sum + account.opening,
+                        0
+                      )
+                    )}
+                  </td>
+                  <td className="text-right font-bold">
+                    {formatCurrency(
+                      model.accounts.reduce(
+                        (sum, account) => sum + account.received,
+                        0
+                      )
+                    )}
+                  </td>
+                  <td className="text-right font-bold">
+                    {formatCurrency(model.totalWithdrawals)}
+                  </td>
+                  <td className="text-right font-bold">
+                    {formatCurrency(
+                      model.accounts.reduce(
+                        (sum, account) => sum + account.balance,
+                        0
+                      )
+                    )}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+
+            {(() => {
+              const productTypes = model.byType.filter(
+                (type) =>
+                  (type.key === "product" || type.key === "extra") &&
+                  (type.count > 0 || type.billed > 0 || type.received > 0)
+              );
+              if (productTypes.length === 0) return null;
+              return (
+                <p className="mt-1">
+                  <strong>Products / extras:</strong>{" "}
+                  {productTypes
+                    .map(
+                      (type) =>
+                        `${
+                          SHORT_TYPE_LABELS[type.key] || type.label
+                        } ${type.count} pcs — ${formatCurrency(
+                          type.billed
+                        )} (cash+MoMo ${formatCurrency(type.received)}${
+                          type.unpaid > 0
+                            ? `, owed ${formatCurrency(type.unpaid)}`
+                            : ""
+                        })`
+                    )
+                    .join(" · ")}
+                </p>
+              );
+            })()}
+
+            {(data?.withdrawals.length ?? 0) > 0 && (
               <p className="mt-1">
-                <strong>Accounts:</strong>{" "}
-                {model.accounts
+                <strong>Withdrawals:</strong>{" "}
+                {(data?.withdrawals || [])
                   .map(
-                    (account) =>
+                    (withdrawal) =>
                       `${
-                        ACCOUNT_SHORT[account.account] || account.account
-                      } ${formatCurrency(account.balance)}`
+                        ACCOUNT_SHORT[withdrawal.account] || withdrawal.account
+                      } ${formatCurrency(withdrawal.amount)}${
+                        withdrawal.note ? ` (${withdrawal.note})` : ""
+                      }`
                   )
-                  .join(" · ")}
+                  .join(" · ")}{" "}
+                — total {formatCurrency(model.totalWithdrawals)}
+              </p>
+            )}
+
+            {model.totalDebt > 0 && (
+              <p className="mt-1">
+                <strong>Half / unpaid:</strong>{" "}
+                {(() => {
+                  const partial = model.rows.filter(
+                    (row) => row.status === "partial"
+                  );
+                  const unpaid = model.rows.filter(
+                    (row) => row.status === "unpaid"
+                  );
+                  const partialDebt = partial.reduce(
+                    (sum, row) => sum + row.debt,
+                    0
+                  );
+                  const unpaidDebt = unpaid.reduce(
+                    (sum, row) => sum + row.debt,
+                    0
+                  );
+                  const parts: string[] = [];
+                  if (partial.length > 0) {
+                    parts.push(
+                      `part paid ${formatCurrency(
+                        partialDebt
+                      )} on ${partial.length} item(s)`
+                    );
+                  }
+                  if (unpaid.length > 0) {
+                    parts.push(
+                      `not paid ${formatCurrency(
+                        unpaidDebt
+                      )} on ${unpaid.length} item(s)`
+                    );
+                  }
+                  return `${parts.join(
+                    " · "
+                  )} — owed ${formatCurrency(model.totalDebt)}`;
+                })()}
               </p>
             )}
 
