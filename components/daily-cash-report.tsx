@@ -34,6 +34,7 @@ import {
 } from "@/lib/daily-cash-report";
 import {
   buildReport,
+  classifyInvoice,
   type DailyCashReportData,
 } from "@/lib/daily-cash-report-model";
 
@@ -53,6 +54,12 @@ interface Bucket {
   momo: number;
   debt: number;
   total: number;
+}
+
+// One printed table line, whichever way the day is grouped.
+interface GroupedLine extends Bucket {
+  key: string;
+  label: string;
 }
 
 const CLOTHES_ROWS: { key: ClothesKey; label: string }[] = [
@@ -333,6 +340,127 @@ export function DailyCashReport() {
     );
   });
 
+  // The day can be read two ways: by garment group (the totals the boss
+  // signs) or invoice by invoice (what actually came in, in the order it
+  // came). Both print the same money. Neither shows client details or an
+  // invoice number.
+  const [groupBy, setGroupBy] = useState<"item" | "invoice">("item");
+
+  // Invoice-by-invoice rows for the clothes table: only invoices that are
+  // clothes (a detergent-only invoice belongs under products), one row each.
+  const invoiceClothesRows = useMemo(() => {
+    if (!model || !data) return [];
+    const productInvoices = new Set(
+      data.invoices
+        .filter((invoice) => classifyInvoice(invoice) === "product")
+        .map((invoice) => invoice.id)
+    );
+    return model.invoiceRows.filter((row) => {
+      const id = row.key.replace(/^inv-/, "");
+      if (row.key === id || productInvoices.has(id)) return false;
+      return Boolean(
+        row.qty || row.total || row.cash || row.momo || row.debt
+      );
+    });
+  }, [model, data]);
+
+  const productInvoiceRows = useMemo(() => {
+    if (!model || !data) return [];
+    const productInvoices = new Set(
+      data.invoices
+        .filter((invoice) => classifyInvoice(invoice) === "product")
+        .map((invoice) => invoice.id)
+    );
+    return model.invoiceRows.filter((row) =>
+      productInvoices.has(row.key.replace(/^inv-/, ""))
+    );
+  }, [model, data]);
+
+  const clothesLines = useMemo<GroupedLine[]>(() => {
+    if (groupBy === "item") {
+      return visibleClothes.map((row) => ({
+        key: row.key,
+        label: row.label,
+        ...buckets.clothes[row.key],
+      }));
+    }
+    return invoiceClothesRows.map((row) => ({
+      key: row.key,
+      label: row.items,
+      qty: row.qty,
+      cash: row.cash,
+      momo: row.momo,
+      debt: row.debt,
+      total: row.total,
+    }));
+  }, [groupBy, visibleClothes, buckets, invoiceClothesRows]);
+
+  const productLines = useMemo<GroupedLine[]>(() => {
+    if (groupBy === "item") {
+      return visibleProducts.map((row) => ({
+        key: row.key,
+        label: row.label,
+        ...buckets.products[row.key],
+      }));
+    }
+    // Products sold on their own (the "Product sold" dialog) keep their own
+    // line so each one can still be deleted, and a detergent invoice stays one
+    // line as well.
+    const manual = model ? model.rows.filter((row) => row.sourceId) : [];
+    return [
+      ...manual.map((row) => ({
+        key: row.key,
+        label:
+          row.qty > 1 ? `${row.items} x${row.qty}` : row.items,
+        qty: row.qty,
+        cash: row.cash,
+        momo: row.momo,
+        debt: row.debt,
+        total: row.total,
+      })),
+      ...productInvoiceRows.map((row) => ({
+        key: row.key,
+        label: row.items,
+        qty: row.qty,
+        cash: row.cash,
+        momo: row.momo,
+        debt: row.debt,
+        total: row.total,
+      })),
+    ];
+  }, [groupBy, visibleProducts, buckets, model, productInvoiceRows]);
+
+  // Footer sums follow whatever is printed, so the table always adds up.
+  const clothesLinesTotal = useMemo(
+    () =>
+      clothesLines.reduce(
+        (sum, line) => ({
+          qty: sum.qty + line.qty,
+          cash: sum.cash + line.cash,
+          momo: sum.momo + line.momo,
+          debt: sum.debt + line.debt,
+          total: sum.total + line.total,
+        }),
+        emptyBucket()
+      ),
+    [clothesLines]
+  );
+
+  const productLinesTotal = useMemo(
+    () =>
+      productLines.reduce(
+        (sum, line) => ({
+          qty: sum.qty + line.qty,
+          cash: sum.cash + line.cash,
+          momo: sum.momo + line.momo,
+          debt: sum.debt + line.debt,
+          total: sum.total + line.total,
+        }),
+        emptyBucket()
+      ),
+    [productLines]
+  );
+
   // --- product / extra sale entry -----------------------------------------
   const [saleOpen, setSaleOpen] = useState(false);
   const [saleRows, setSaleRows] = useState<SaleDraft[]>([emptySaleDraft()]);
@@ -511,6 +639,22 @@ export function DailyCashReport() {
             <Printer className="h-4 w-4" />
             Print
           </Button>
+          <div className="flex items-center gap-1 rounded-md border p-1">
+            <Button
+              size="sm"
+              variant={groupBy === "item" ? "default" : "ghost"}
+              onClick={() => setGroupBy("item")}
+            >
+              By item
+            </Button>
+            <Button
+              size="sm"
+              variant={groupBy === "invoice" ? "default" : "ghost"}
+              onClick={() => setGroupBy("invoice")}
+            >
+              By invoice
+            </Button>
+          </div>
           <Button
             variant="secondary"
             onClick={() => setSaleOpen(true)}
@@ -559,6 +703,9 @@ export function DailyCashReport() {
         </h2>
         <p className="mb-4 text-center text-sm">
           Date: {formatReportDate(reportDate)}
+          <span className="ml-1 text-xs uppercase tracking-wide text-muted-foreground">
+            · grouped by {groupBy === "item" ? "item" : "invoice"}
+          </span>
         </p>
 
         {!model ? (
@@ -582,7 +729,7 @@ export function DailyCashReport() {
                 </tr>
               </thead>
               <tbody>
-                {visibleClothes.length === 0 && (
+                {clothesLines.length === 0 && (
                   <tr>
                     <td
                       className={`${cell} text-muted-foreground`}
@@ -592,49 +739,50 @@ export function DailyCashReport() {
                     </td>
                   </tr>
                 )}
-                {visibleClothes.map((row) => {
-                  const bucket = buckets.clothes[row.key];
-                  return (
-                    <tr key={row.key}>
-                      <td className={cell}>{row.label}</td>
-                      <td className={`${cell} text-right`}>
-                        {bucket.qty || ""}
-                      </td>
-                      <td className={`${cell} text-right`}>
-                        {money(bucket.cash)}
-                      </td>
-                      <td className={`${cell} text-right`}>
-                        {money(bucket.momo)}
-                      </td>
-                      <td
-                        className={`${cell} text-right font-bold text-red-600`}
-                      >
-                        {money(bucket.debt)}
-                      </td>
-                      <td className={`${cell} text-right`}>
-                        {money(bucket.total)}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {clothesLines.map((line) => (
+                  <tr key={line.key}>
+                    <td
+                      className={`${cell} ${
+                        groupBy === "invoice" ? "text-xs leading-snug" : ""
+                      }`}
+                    >
+                      {line.label}
+                    </td>
+                    <td className={`${cell} text-right`}>{line.qty || ""}</td>
+                    <td className={`${cell} text-right`}>
+                      {money(line.cash)}
+                    </td>
+                    <td className={`${cell} text-right`}>
+                      {money(line.momo)}
+                    </td>
+                    <td
+                      className={`${cell} text-right font-bold text-red-600`}
+                    >
+                      {money(line.debt)}
+                    </td>
+                    <td className={`${cell} text-right`}>
+                      {money(line.total)}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
               <tfoot>
                 <tr className="font-bold">
                   <td className={cell}>TOTAL</td>
-                  <td className={`${cell} text-right`}>{clothesTotal.qty}</td>
+                  <td className={`${cell} text-right`}>{clothesLinesTotal.qty}</td>
                   <td className={`${cell} text-right`}>
-                    {formatCurrency(clothesTotal.cash)}
+                    {formatCurrency(clothesLinesTotal.cash)}
                   </td>
                   <td className={`${cell} text-right`}>
-                    {formatCurrency(clothesTotal.momo)}
+                    {formatCurrency(clothesLinesTotal.momo)}
                   </td>
                   <td
                     className={`${cell} text-right font-bold text-red-600`}
                   >
-                    {formatCurrency(clothesTotal.debt)}
+                    {formatCurrency(clothesLinesTotal.debt)}
                   </td>
                   <td className={`${cell} text-right`}>
-                    {formatCurrency(clothesTotal.total)}
+                    {formatCurrency(clothesLinesTotal.total)}
                   </td>
                 </tr>
               </tfoot>
@@ -655,7 +803,7 @@ export function DailyCashReport() {
                 </tr>
               </thead>
               <tbody>
-                {visibleProducts.length === 0 && (
+                {productLines.length === 0 && (
                   <tr>
                     <td
                       className={`${cell} text-muted-foreground`}
@@ -665,49 +813,50 @@ export function DailyCashReport() {
                     </td>
                   </tr>
                 )}
-                {visibleProducts.map((row) => {
-                  const bucket = buckets.products[row.key];
-                  return (
-                    <tr key={row.key}>
-                      <td className={cell}>{row.label}</td>
-                      <td className={`${cell} text-right`}>
-                        {bucket.qty || ""}
-                      </td>
-                      <td className={`${cell} text-right`}>
-                        {money(bucket.cash)}
-                      </td>
-                      <td className={`${cell} text-right`}>
-                        {money(bucket.momo)}
-                      </td>
-                      <td
-                        className={`${cell} text-right font-bold text-red-600`}
-                      >
-                        {money(bucket.debt)}
-                      </td>
-                      <td className={`${cell} text-right`}>
-                        {money(bucket.total)}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {productLines.map((line) => (
+                  <tr key={line.key}>
+                    <td
+                      className={`${cell} ${
+                        groupBy === "invoice" ? "text-xs leading-snug" : ""
+                      }`}
+                    >
+                      {line.label}
+                    </td>
+                    <td className={`${cell} text-right`}>{line.qty || ""}</td>
+                    <td className={`${cell} text-right`}>
+                      {money(line.cash)}
+                    </td>
+                    <td className={`${cell} text-right`}>
+                      {money(line.momo)}
+                    </td>
+                    <td
+                      className={`${cell} text-right font-bold text-red-600`}
+                    >
+                      {money(line.debt)}
+                    </td>
+                    <td className={`${cell} text-right`}>
+                      {money(line.total)}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
               <tfoot>
                 <tr className="font-bold">
                   <td className={cell}>TOTAL</td>
-                  <td className={`${cell} text-right`}>{productsTotal.qty}</td>
+                  <td className={`${cell} text-right`}>{productLinesTotal.qty}</td>
                   <td className={`${cell} text-right`}>
-                    {formatCurrency(productsTotal.cash)}
+                    {formatCurrency(productLinesTotal.cash)}
                   </td>
                   <td className={`${cell} text-right`}>
-                    {formatCurrency(productsTotal.momo)}
+                    {formatCurrency(productLinesTotal.momo)}
                   </td>
                   <td
                     className={`${cell} text-right font-bold text-red-600`}
                   >
-                    {formatCurrency(productsTotal.debt)}
+                    {formatCurrency(productLinesTotal.debt)}
                   </td>
                   <td className={`${cell} text-right`}>
-                    {formatCurrency(productsTotal.total)}
+                    {formatCurrency(productLinesTotal.total)}
                   </td>
                 </tr>
               </tfoot>
