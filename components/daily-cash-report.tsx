@@ -121,11 +121,22 @@ function splitGarments(name: string): string[] {
   return recognized >= 2 ? parts : [name];
 }
 
+// Money is shared in whole francs; the last piece takes the remainder so the
+// group total stays exact.
 function shareOf(value: number, index: number, count: number): number {
-  const each = Math.round((value / count) * 100) / 100;
-  return index === count - 1
-    ? Math.round((value - each * (count - 1)) * 100) / 100
-    : each;
+  const each = Math.round(value / count);
+  return index === count - 1 ? value - each * (count - 1) : each;
+}
+
+// Pieces are always whole garments: "trouser and shirt" on one line is one
+// trouser + one shirt, never half of each.
+function splitQuantity(total: number, index: number, count: number): number {
+  const whole = Math.max(0, Math.round(total));
+  if (whole === 0) return 0;
+  const base = Math.floor(whole / count);
+  const extra = whole - base * count;
+  const share = base + (index < extra ? 1 : 0);
+  return Math.max(share, 1);
 }
 
 function productGroup(name: string): ProductKey {
@@ -220,7 +231,7 @@ export function DailyCashReport() {
       const pieces = splitGarments(row.items);
       pieces.forEach((piece, index) => {
         const bucket = clothes[clothesGroup(piece)];
-        bucket.qty += shareOf(row.qty, index, pieces.length);
+        bucket.qty += splitQuantity(row.qty, index, pieces.length);
         bucket.cash += shareOf(row.cash, index, pieces.length);
         bucket.momo += shareOf(row.momo, index, pieces.length);
         bucket.debt += shareOf(row.debt, index, pieces.length);
