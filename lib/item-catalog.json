@@ -44,8 +44,7 @@
     { "name": "Tablecloth", "category": "dry_cleaning", "aliases": ["table cloth", "tablecloths"] },
     { "name": "Napkin", "category": "dry_cleaning", "aliases": ["napkins","udutambaro"] },
     {"name": "Curtain day", "category": "dry_cleaning", "aliases": ["curtains", "day curtain", "night curtain","amarido", "net curtain", "irido"] },
-    {"name": "Base", "category": "dry_cleaning", "aliases": ["Base", "basin", "basin"] }
-    ,
+    {"name": "Base", "category": "dry_cleaning", "aliases": ["base", "basin", "bases"] },
     { "name": "Chair cover", "category": "dry_cleaning", "aliases": ["chair covers", "chaircover"] },
     { "name": "Cushion cover", "category": "dry_cleaning", "aliases": ["cushion covers", "cushion"] },
     { "name": "Sofa cover", "category": "dry_cleaning", "aliases": ["sofa covers", "couch cover", "couch covers"] },

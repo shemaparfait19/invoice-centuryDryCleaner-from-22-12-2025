@@ -43,6 +43,7 @@ type ClothesKey =
   | "shirts"
   | "pants"
   | "overalls"
+  | "base"
   | "coats"
   | "dresses"
   | "other";
@@ -67,6 +68,7 @@ const CLOTHES_ROWS: { key: ClothesKey; label: string }[] = [
   { key: "shirts", label: "Shirts" },
   { key: "pants", label: "Pants" },
   { key: "overalls", label: "Overalls" },
+  { key: "base", label: "Base" },
   { key: "coats", label: "Single Coats" },
   { key: "dresses", label: "Dresses" },
   { key: "other", label: "Other Clothes" },
@@ -103,6 +105,11 @@ const CLOTHES_WORDS: { key: ClothesKey; test: RegExp }[] = [
   {
     key: "pants",
     test: /\b(pants?|trousers?|jeans?|slacks?|shorts?|skirts?|leggings?)\b/,
+  },
+  {
+    // "Base" is its own garment (also typed "basin" / "bases"), never Other.
+    key: "base",
+    test: /\b(bases?|basin|basins)\b/,
   },
   {
     key: "coats",
@@ -242,6 +249,7 @@ export function DailyCashReport() {
       shirts: emptyBucket(),
       pants: emptyBucket(),
       overalls: emptyBucket(),
+      base: emptyBucket(),
       coats: emptyBucket(),
       dresses: emptyBucket(),
       other: emptyBucket(),
