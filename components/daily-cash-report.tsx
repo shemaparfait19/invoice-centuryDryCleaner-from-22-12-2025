@@ -37,7 +37,14 @@ import {
   type DailyCashReportData,
 } from "@/lib/daily-cash-report-model";
 
-type ClothesKey = "suits" | "shirts" | "pants" | "coats" | "dresses" | "other";
+type ClothesKey =
+  | "suits"
+  | "shirts"
+  | "pants"
+  | "overalls"
+  | "coats"
+  | "dresses"
+  | "other";
 type ProductKey = "hangers" | "covers" | "other_products";
 
 interface Bucket {
@@ -52,6 +59,7 @@ const CLOTHES_ROWS: { key: ClothesKey; label: string }[] = [
   { key: "suits", label: "Suits" },
   { key: "shirts", label: "Shirts" },
   { key: "pants", label: "Pants" },
+  { key: "overalls", label: "Overalls" },
   { key: "coats", label: "Single Coats" },
   { key: "dresses", label: "Dresses" },
   { key: "other", label: "Other Clothes" },
@@ -79,6 +87,11 @@ const CLOTHES_WORDS: { key: ClothesKey; test: RegExp }[] = [
   {
     key: "shirts",
     test: /\b(shirts?|tshirts?|t-?shirts?|tees?|polos?|blouses?)\b/,
+  },
+  {
+    // Overalls are their own item, never counted as trousers.
+    key: "overalls",
+    test: /\b(overalls?|over\s?all|dungarees?|igisurubeti|isurubeti)\b/,
   },
   {
     key: "pants",
@@ -204,6 +217,7 @@ export function DailyCashReport() {
       suits: emptyBucket(),
       shirts: emptyBucket(),
       pants: emptyBucket(),
+      overalls: emptyBucket(),
       coats: emptyBucket(),
       dresses: emptyBucket(),
       other: emptyBucket(),
