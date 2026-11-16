@@ -42,7 +42,7 @@
     { "name": "Curtain night", "category": "dry_cleaning", "aliases": ["curtains", "day curtain", "night curtain","amarido", "net curtain"] },
     { "name": "Overall", "category": "dry_cleaning", "aliases": ["overall washing", "igisurubeti", "isurubeti","over all"] },
     { "name": "Tablecloth", "category": "dry_cleaning", "aliases": ["table cloth", "tablecloths"] },
-    { "name": "Napkin", "category": "dry_cleaning", "aliases": ["napkins"] },
+    { "name": "Napkin", "category": "dry_cleaning", "aliases": ["napkins","udutambaro"] },
     {"name": "Curtain day", "category": "dry_cleaning", "aliases": ["curtains", "day curtain", "night curtain","amarido", "net curtain", "irido"] },
     { "name": "Chair cover", "category": "dry_cleaning", "aliases": ["chair covers", "chaircover"] },
     { "name": "Cushion cover", "category": "dry_cleaning", "aliases": ["cushion covers", "cushion"] },
