@@ -19,6 +19,7 @@ import { InvoicePrint } from "@/components/invoice-print";
 import { InvoiceStatusManager } from "@/components/invoice-status-manager";
 import { PaymentStatusBadge, RecordPaymentButton, PaymentMethodLabel } from "@/components/payment-status";
 import { toast } from "@/hooks/use-toast";
+import { useModalDismiss } from "@/hooks/use-modal-dismiss";
 import type { Invoice } from "@/lib/types";
 
 const LIMIT_OPTIONS = [50, 100, 200, 500] as const;
@@ -88,6 +89,9 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
   const [loading, setLoading] = useState(true);
   const [limit, setLimit] = useState<LimitOption>(50);
   const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
+  const dismissViewInvoice = useModalDismiss(Boolean(viewInvoice), () =>
+    setViewInvoice(null)
+  );
 
   const load = useCallback((lim: LimitOption) => {
     setLoading(true);
@@ -412,8 +416,14 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
 
       {/* Invoice View Modal */}
       {viewInvoice && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onMouseDown={dismissViewInvoice}
+        >
+          <div
+            className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
             <div className="p-4 border-b flex items-center justify-between">
               <h2 className="text-lg font-semibold">Invoice Details</h2>
               <Button variant="ghost" onClick={() => setViewInvoice(null)}>×</Button>

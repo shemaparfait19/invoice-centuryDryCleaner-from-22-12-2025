@@ -33,6 +33,7 @@ import { PickupNotifications } from "@/components/pickup-notifications";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { Input } from "@/components/ui/input";
 import { formatCurrency } from "@/lib/utils";
+import { useModalDismiss } from "@/hooks/use-modal-dismiss";
 import { RealTimeStatusIndicator } from "@/components/real-time-status-indicator";
 import { InvoiceDashboardCard } from "@/components/invoice-dashboard-card";
 import { InvoiceStatusManager } from "@/components/invoice-status-manager";
@@ -62,6 +63,9 @@ export default function HomePage() {
   const [currentView, setCurrentView] = useState<View>("dashboard");
   const [editingInvoice, setEditingInvoice] = useState<string | null>(null);
   const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
+  const dismissViewInvoice = useModalDismiss(Boolean(viewInvoice), () =>
+    setViewInvoice(null)
+  );
   const {
     invoices,
     clients,
@@ -594,8 +598,14 @@ export default function HomePage() {
 
       <main className="container mx-auto px-4 py-4 sm:py-8">{renderContent()}</main>
       {viewInvoice && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onMouseDown={dismissViewInvoice}
+        >
+          <div
+            className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
             <div className="p-4 border-b flex items-center justify-between">
               <h2 className="text-lg font-semibold">
                 Invoice Details & Status

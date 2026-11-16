@@ -50,6 +50,7 @@ import {
 } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
+import { useModalDismiss } from "@/hooks/use-modal-dismiss";
 import { generatePDF, sharePDF, shareViaWhatsApp } from "@/lib/pdf-utils";
 import { InvoicePrint } from "@/components/invoice-print";
 import { toast } from "@/hooks/use-toast";
@@ -70,6 +71,9 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
   const [paidFilter, setPaidFilter] = useState<string>("all");
   const [deleteInvoiceId, setDeleteInvoiceId] = useState<string | null>(null);
   const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
+  const dismissViewInvoice = useModalDismiss(Boolean(viewInvoice), () =>
+    setViewInvoice(null)
+  );
   const [notesInvoice, setNotesInvoice] = useState<Invoice | null>(null);
   const [notesText, setNotesText] = useState("");
   const [sectionInvoice, setSectionInvoice] = useState<Invoice | null>(null);
@@ -855,8 +859,14 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
 
       {/* Invoice View Dialog */}
       {viewInvoice && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onMouseDown={dismissViewInvoice}
+        >
+          <div
+            className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
             <div className="p-4 border-b flex items-center justify-between">
               <h2 className="text-lg font-semibold">Invoice Preview</h2>
               <Button variant="ghost" onClick={() => setViewInvoice(null)}>
