@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef } from "react";
-import { formatCurrency, formatTime } from "@/lib/utils";
+import { formatCurrency, formatDateTime, formatTime } from "@/lib/utils";
 import type { Invoice } from "@/lib/types";
 
 interface InvoicePrintProps {
@@ -56,7 +56,7 @@ export const InvoicePrint = forwardRef<HTMLDivElement, InvoicePrintProps>(
                 style={{ fontSize: "14px", fontWeight: "600" }}
               >
                 <p className="mb-1">
-                  Date: {new Date(invoice.createdAt).toLocaleDateString()}
+                  Date: {formatDateTime(invoice.createdAt)}
                 </p>
                 {invoice.createdByName && (
                   <p>Served by: {invoice.createdByName}</p>

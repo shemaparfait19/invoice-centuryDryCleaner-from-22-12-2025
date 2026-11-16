@@ -49,7 +49,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDateTime } from "@/lib/utils";
 import { generatePDF, sharePDF, shareViaWhatsApp } from "@/lib/pdf-utils";
 import { InvoicePrint } from "@/components/invoice-print";
 import { toast } from "@/hooks/use-toast";
@@ -431,7 +431,7 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
 
                 <div className="text-sm text-muted-foreground">
                   <p>
-                    Date: {new Date(invoice.createdAt).toLocaleDateString()}
+                    Date: {formatDateTime(invoice.createdAt)}
                   </p>
                   <p>Created by: {invoice.createdByName || "-"}</p>
                 </div>
@@ -631,8 +631,8 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                               </p>
                             </div>
                           </td>
-                          <td className="p-4">
-                            {new Date(invoice.createdAt).toLocaleDateString()}
+                          <td className="p-4 whitespace-nowrap">
+                            {formatDateTime(invoice.createdAt)}
                           </td>
                           <td className="p-4 text-sm text-muted-foreground">
                             {invoice.createdByName || "-"}

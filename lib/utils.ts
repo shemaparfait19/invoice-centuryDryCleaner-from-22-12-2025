@@ -66,6 +66,17 @@ export function formatTime(time?: string | null): string {
   return `${hour12}:${m.toString().padStart(2, '0')} ${period}`
 }
 
+// An invoice's creation stamp, date and time: "11/16/2026 12:23 PM". The time
+// matters in the shop — two invoices can carry the same date.
+export function formatDateTime(value?: string | Date | null): string {
+  if (!value) return ""
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  const day = date.toLocaleDateString()
+  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+  return `${day} ${time}`
+}
+
 // Formats a Date as a local-timezone "YYYY-MM-DD" string. Prefer this over
 // `date.toISOString().split('T')[0]` for "today's date" — toISOString
 // converts to UTC first, which silently returns YESTERDAY's date for a

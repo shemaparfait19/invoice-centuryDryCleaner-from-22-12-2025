@@ -517,20 +517,18 @@ export function buildReport(
     const invoicePending = round2(
       invoiceLines.reduce((sum, row) => sum + row.pendingMomo, 0)
     );
-    const invoiceTimeLabel = new Date(time).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    // The time is not printed here (the invoice itself carries it); it is only
+    // used to keep the rows in the order the clothes came in.
     invoiceRows.push({
       key: `inv-${invoice.id}`,
-      items: `${invoiceTimeLabel} · ${lines
+      items: lines
         .map(
           (line) =>
             `${canonicalItemName(
               shortItemName(line.description)
             )} x${line.quantity}`
         )
-        .join(", ")}`,
+        .join(", "),
       qty: invoiceLines.reduce((sum, row) => sum + row.qty, 0),
       cash: round2(invoiceLines.reduce((sum, row) => sum + row.cash, 0)),
       momo: round2(invoiceLines.reduce((sum, row) => sum + row.momo, 0)),
@@ -685,10 +683,7 @@ export function buildReport(
     // for an invoice billed on an earlier day, so it reads as that invoice.
     invoiceRows.push({
       key: `old-inv-${payment.id}`,
-      items: `${new Date(payment.createdAt).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      })} · ${summarizeItemList(items)} (old debt)`,
+      items: `${summarizeItemList(items)} (old debt)`,
       qty: items.reduce((sum, item) => sum + item.quantity, 0),
       cash: payment.method === "CASH" ? payment.amount : 0,
       momo: payment.method === "MOMO" ? payment.amount : 0,
