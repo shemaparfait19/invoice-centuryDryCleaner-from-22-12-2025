@@ -171,6 +171,23 @@ function money(value: number): string {
   return value ? formatCurrency(value) : "—";
 }
 
+// One line in the "product sold" dialog. Several lines can be saved at once.
+interface SaleDraft {
+  description: string;
+  quantity: string;
+  total: string;
+  cash: string;
+  momo: string;
+}
+
+const emptySaleDraft = (): SaleDraft => ({
+  description: "",
+  quantity: "1",
+  total: "",
+  cash: "",
+  momo: "",
+});
+
 export function DailyCashReport() {
   const [selectedDate, setSelectedDate] = useState(getLocalDateString());
   const [loadedDate, setLoadedDate] = useState<string | null>(null);
@@ -318,12 +335,20 @@ export function DailyCashReport() {
 
   // --- product / extra sale entry -----------------------------------------
   const [saleOpen, setSaleOpen] = useState(false);
-  const [saleDescription, setSaleDescription] = useState("");
-  const [saleQuantity, setSaleQuantity] = useState("1");
-  const [saleTotal, setSaleTotal] = useState("");
-  const [saleCash, setSaleCash] = useState("");
-  const [saleMomo, setSaleMomo] = useState("");
+  const [saleRows, setSaleRows] = useState<SaleDraft[]>([emptySaleDraft()]);
   const [savingSale, setSavingSale] = useState(false);
+
+  const updateSaleRow = (index: number, patch: Partial<SaleDraft>) =>
+    setSaleRows((rows) =>
+      rows.map((row, i) => (i === index ? { ...row, ...patch } : row))
+    );
+  const addSaleRow = () => setSaleRows((rows) => [...rows, emptySaleDraft()]);
+  const removeSaleRow = (index: number) =>
+    setSaleRows((rows) =>
+      rows.length === 1
+        ? [emptySaleDraft()]
+        : rows.filter((_, i) => i !== index)
+    );
 
   // What is already on each phone at the start of the day.
   const [phonesCleaner, setPhonesCleaner] = useState("");
@@ -339,54 +364,69 @@ export function DailyCashReport() {
     );
   }, [data]);
 
-  const submitSale = async () => {
-    const description = saleDescription.trim();
-    if (!description) {
+  const submitSales = async () => {
+    // Blank lines are ignored, so you can leave the last row empty.
+    const drafts = saleRows.filter((row) => row.description.trim());
+    if (drafts.length === 0) {
       toast({ title: "Enter what was sold", variant: "destructive" });
       return;
     }
-    const quantity = Number(saleQuantity.replace(/[^0-9.]/g, "")) || 1;
-    const total = Number(saleTotal.replace(/[^0-9.]/g, "")) || 0;
-    const cash = Number(saleCash.replace(/[^0-9.]/g, "")) || 0;
-    const momo = Number(saleMomo.replace(/[^0-9.]/g, "")) || 0;
-    if (total <= 0) {
-      toast({ title: "Enter the total price", variant: "destructive" });
+
+    const parsed = drafts.map((row) => ({
+      description: row.description.trim(),
+      quantity: Number(row.quantity.replace(/[^0-9.]/g, "")) || 1,
+      total: Number(row.total.replace(/[^0-9.]/g, "")) || 0,
+      cash: Number(row.cash.replace(/[^0-9.]/g, "")) || 0,
+      momo: Number(row.momo.replace(/[^0-9.]/g, "")) || 0,
+    }));
+
+    const badTotal = parsed.find((sale) => sale.total <= 0);
+    if (badTotal) {
+      toast({
+        title: `Enter the total price for ${badTotal.description}`,
+        variant: "destructive",
+      });
       return;
     }
-    if (cash + momo > total + 0.5) {
+    const overpaid = parsed.find(
+      (sale) => sale.cash + sale.momo > sale.total + 0.5
+    );
+    if (overpaid) {
       toast({
-        title: "Paid more than the total",
+        title: `Paid more than the total for ${overpaid.description}`,
         description: "Check the cash and MoMo amounts.",
         variant: "destructive",
       });
       return;
     }
+
     setSavingSale(true);
+    const { fromIso } = getDayRangeIso(reportDate);
+    let saved = 0;
     try {
-      const { fromIso } = getDayRangeIso(reportDate);
-      await addExtraSale({
-        soldAt: fromIso,
-        category: /hanger|cover/i.test(description) ? "extra" : "product",
-        description,
-        quantity,
-        totalPrice: total,
-        amountPaidCash: cash,
-        amountPaidMomo: momo,
-      });
-      setSaleOpen(false);
-      setSaleDescription("");
-      setSaleQuantity("1");
-      setSaleTotal("");
-      setSaleCash("");
-      setSaleMomo("");
+      for (const sale of parsed) {
+        await addExtraSale({
+          soldAt: fromIso,
+          category: /hanger|cover/i.test(sale.description) ? "extra" : "product",
+          description: sale.description,
+          quantity: sale.quantity,
+          totalPrice: sale.total,
+          amountPaidCash: sale.cash,
+          amountPaidMomo: sale.momo,
+        });
+        saved += 1;
+      }
+      // The dialog stays open with a fresh line, so more can be added at once.
+      setSaleRows([emptySaleDraft()]);
       await load(reportDate);
-      toast({ title: "Sale recorded" });
+      toast({ title: `${saved} sale${saved === 1 ? "" : "s"} recorded` });
     } catch (error: any) {
       toast({
-        title: "Could not save the sale",
+        title: saved > 0 ? `${saved} saved, the rest failed` : "Could not save the sale",
         description: error?.message || "Please try again.",
         variant: "destructive",
       });
+      if (saved > 0) await load(reportDate);
     } finally {
       setSavingSale(false);
     }
@@ -695,7 +735,33 @@ export function DailyCashReport() {
               </p>
             </div>
 
-            <p className="mt-6 text-center text-sm font-semibold uppercase tracking-wide">
+            <div className="mt-8 space-y-5 text-sm">
+              <div className="flex flex-wrap items-end justify-between gap-6">
+                <div>
+                  <p>Prepared by (name)</p>
+                  <p className="mt-4 border-t border-black pt-1">
+                    &nbsp;
+                  </p>
+                </div>
+                <div className="min-w-[220px]">
+                  <p>Signature</p>
+                  <p className="mt-4 border-t border-black pt-1">&nbsp;</p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-end justify-between gap-6">
+                <div>
+                  <p>Approved by</p>
+                  <p className="mt-1 font-semibold">Isaac NSENGIYUMVA</p>
+                </div>
+                <div className="min-w-[220px]">
+                  <p>Signature</p>
+                  <p className="mt-4 border-t border-black pt-1">&nbsp;</p>
+                </div>
+              </div>
+            </div>
+
+            <p className="mt-8 text-center text-sm font-semibold uppercase tracking-wide">
               End of daily report
             </p>
 
@@ -732,70 +798,108 @@ export function DailyCashReport() {
       </div>
 
       <Dialog open={saleOpen} onOpenChange={setSaleOpen}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Product / extra sold</DialogTitle>
             <DialogDescription>
+              Add as many products as you like, then save them all at once.
               Hangers, covers, detergent — sold outside an invoice.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label htmlFor="sale-description">Description</Label>
-              <Input
-                id="sale-description"
-                value={saleDescription}
-                onChange={(e) => setSaleDescription(e.target.value)}
-                placeholder="e.g. Hanger, Cover, Detergent"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label htmlFor="sale-qty">Quantity</Label>
-                <Input
-                  id="sale-qty"
-                  inputMode="numeric"
-                  value={saleQuantity}
-                  onChange={(e) =>
-                    setSaleQuantity(e.target.value.replace(/[^0-9]/g, ""))
-                  }
-                />
+
+          <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+            {saleRows.map((row, index) => (
+              <div key={index} className="space-y-2 rounded-md border p-2">
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <Label htmlFor={`sale-description-${index}`}>
+                      Item {index + 1}
+                    </Label>
+                    <Input
+                      id={`sale-description-${index}`}
+                      value={row.description}
+                      onChange={(e) =>
+                        updateSaleRow(index, { description: e.target.value })
+                      }
+                      placeholder="e.g. Hanger, Cover, Detergent"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    title="Remove this line"
+                    onClick={() => removeSaleRow(index)}
+                    disabled={saleRows.length === 1}
+                  >
+                    <Trash2 className="h-4 w-4 text-red-600" />
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label htmlFor={`sale-qty-${index}`}>Quantity</Label>
+                    <Input
+                      id={`sale-qty-${index}`}
+                      inputMode="numeric"
+                      value={row.quantity}
+                      onChange={(e) =>
+                        updateSaleRow(index, {
+                          quantity: e.target.value.replace(/[^0-9]/g, ""),
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor={`sale-total-${index}`}>Total price</Label>
+                    <CurrencyInput
+                      id={`sale-total-${index}`}
+                      value={row.total}
+                      onChange={(value) =>
+                        updateSaleRow(index, { total: value })
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label htmlFor={`sale-cash-${index}`}>Paid cash</Label>
+                    <CurrencyInput
+                      id={`sale-cash-${index}`}
+                      value={row.cash}
+                      onChange={(value) => updateSaleRow(index, { cash: value })}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor={`sale-momo-${index}`}>Paid MoMo</Label>
+                    <CurrencyInput
+                      id={`sale-momo-${index}`}
+                      value={row.momo}
+                      onChange={(value) => updateSaleRow(index, { momo: value })}
+                    />
+                  </div>
+                </div>
               </div>
-              <div>
-                <Label htmlFor="sale-total">Total price</Label>
-                <CurrencyInput
-                  id="sale-total"
-                  value={saleTotal}
-                  onChange={setSaleTotal}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label htmlFor="sale-cash">Paid cash</Label>
-                <CurrencyInput
-                  id="sale-cash"
-                  value={saleCash}
-                  onChange={setSaleCash}
-                />
-              </div>
-              <div>
-                <Label htmlFor="sale-momo">Paid MoMo</Label>
-                <CurrencyInput
-                  id="sale-momo"
-                  value={saleMomo}
-                  onChange={setSaleMomo}
-                />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
+            ))}
+
             <Button
-              onClick={submitSale}
-              disabled={savingSale}
-              className="w-full sm:w-auto"
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={addSaleRow}
+              className="w-full"
             >
-              {savingSale ? "Saving..." : "Save sale"}
+              <Plus className="mr-2 h-4 w-4" />
+              Add another item
+            </Button>
+          </div>
+
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
+            <span className="text-xs text-muted-foreground">
+              {saleRows.filter((row) => row.description.trim()).length} item(s)
+              ready — they are saved together.
+            </span>
+            <Button onClick={submitSales} disabled={savingSale}>
+              {savingSale ? "Saving..." : "Save all"}
             </Button>
           </DialogFooter>
         </DialogContent>
