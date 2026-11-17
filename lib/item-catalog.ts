@@ -40,6 +40,13 @@ export function canonicalItemName(label: string): string {
   return CANONICAL.get(key) || label.trim();
 }
 
+// The catalog's own name for a label, or null when it is not in the list. The
+// daily report uses this to give every known item its own printed row instead
+// of sweeping it into "Other Clothes".
+export function lookupItemName(label: string): string | null {
+  return CANONICAL.get(normalize(label)) || null;
+}
+
 // Suggestions for the typing dropdown: names starting with the query first,
 // then names (or aliases) that merely contain it.
 export function searchItemCatalog(query: string, limit = 8): string[] {

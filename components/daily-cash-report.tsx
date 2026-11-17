@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Printer, RefreshCw, Plus, Trash2 } from "lucide-react";
 import { formatCurrency, getLocalDateString } from "@/lib/utils";
+import { lookupItemName } from "@/lib/item-catalog";
 import { toast } from "@/hooks/use-toast";
 import {
   addExtraSale,
@@ -63,7 +64,10 @@ interface GroupedLine extends Bucket {
   label: string;
 }
 
-const CLOTHES_ROWS: { key: ClothesKey; label: string }[] = [
+// The fixed rows, in print order. Anything else the catalog knows becomes its
+// own row after these ("Socks", "Pillowcase", "Napkin"…), and only a name the
+// catalog has never heard of is left in "Other Clothes".
+const CLOTHES_ROWS: { key: string; label: string }[] = [
   { key: "suits", label: "Suits" },
   { key: "shirts", label: "Shirts" },
   { key: "pants", label: "Pants" },
@@ -91,48 +95,61 @@ const emptyBucket = (): Bucket => ({
 // How the staff actually write items: "shirts washing", "trouser", "single
 // coat", "tshirt", "bedcover". The garment WORD decides the group, so free
 // text counts correctly instead of falling into a leftover basket.
-const CLOTHES_WORDS: { key: ClothesKey; test: RegExp }[] = [
-  { key: "suits", test: /\b(suits?|blazers?|tuxedos?|costumes?)\b/ },
+const CLOTHES_WORDS: { key: ClothesKey; label: string; test: RegExp }[] = [
+  { key: "suits", label: "Suits", test: /\b(suits?|blazers?|tuxedos?|costumes?)\b/ },
   {
     key: "shirts",
+    label: "Shirts",
     test: /\b(shirts?|tshirts?|t-?shirts?|tees?|polos?|blouses?)\b/,
   },
   {
     // Overalls are their own item, never counted as trousers.
     key: "overalls",
+    label: "Overalls",
     test: /\b(overalls?|over\s?all|dungarees?|igisurubeti|isurubeti)\b/,
   },
   {
     key: "pants",
+    label: "Pants",
     test: /\b(pants?|trousers?|jeans?|slacks?|shorts?|skirts?|leggings?)\b/,
   },
   {
     // "Base" is its own garment (also typed "basin" / "bases"), never Other.
     key: "base",
+    label: "Base",
     test: /\b(bases?|basin|basins)\b/,
   },
   {
     key: "coats",
+    label: "Single Coats",
     test:
       /\b(coats?|jackets?|parkas?|cardigans?|jumpers?|sweaters?|hoodies?|vests?)\b/,
   },
   {
     key: "dresses",
+    label: "Dresses",
     test: /\b(dress(?:es)?|gowns?|robes?|kaftans?|kitenge|amida)\b/,
-  },
-  {
-    key: "other",
-    test:
-      /\b(underpants?|underwear|boxers?|socks?|stockings?|ties?|scarves?|scarfs?|shawls?|hats?|caps?|beanies?|gloves?|belts?|shoes?|boots?|sandals?|slippers?|sneakers?|bags?|handbags?|luggage|suitcases?|umbrellas?|pillows?|pillowcases?|towels?|napkins?|bedcovers?|bedsheets?|blankets?|comforters?|quilts?|curtains?|mattress|mosquito|uniforms?|tracksuits?|jerseys?|pyjamas?|pajamas?|lingerie|bras?)\b/,
   },
 ];
 
-function clothesGroup(name: string): ClothesKey {
+interface ClothesGroup {
+  // "suits", "pants"… for a fixed row, "item:<name>" for a catalog item with
+  // no fixed row, "other" only for a name the catalog does not know.
+  key: string;
+  label: string;
+  known: boolean;
+}
+
+function clothesGroup(name: string): ClothesGroup {
   const n = name.toLowerCase();
   for (const entry of CLOTHES_WORDS) {
-    if (entry.test.test(n)) return entry.key;
+    if (entry.test.test(n)) {
+      return { key: entry.key, label: entry.label, known: true };
+    }
   }
-  return "other";
+  const item = lookupItemName(name);
+  if (item) return { key: `item:${item.toLowerCase()}`, label: item, known: true };
+  return { key: "other", label: "Other Clothes", known: false };
 }
 
 // "trouser and shirt" is two garments, not one unreadable line.
@@ -142,9 +159,7 @@ function splitGarments(name: string): string[] {
     .map((part) => part.trim())
     .filter(Boolean);
   if (parts.length < 2) return [name];
-  const recognized = parts.filter(
-    (part) => clothesGroup(part) !== "other"
-  ).length;
+  const recognized = parts.filter((part) => clothesGroup(part).known).length;
   return recognized >= 2 ? parts : [name];
 }
 
@@ -244,22 +259,20 @@ export function DailyCashReport() {
   const reportDate = loadedDate || selectedDate;
 
   const buckets = useMemo(() => {
-    const clothes: Record<ClothesKey, Bucket> = {
-      suits: emptyBucket(),
-      shirts: emptyBucket(),
-      pants: emptyBucket(),
-      overalls: emptyBucket(),
-      base: emptyBucket(),
-      coats: emptyBucket(),
-      dresses: emptyBucket(),
-      other: emptyBucket(),
-    };
+    // Keyed by group: the fixed rows, plus "item:<name>" for catalog items
+    // that have no fixed row of their own.
+    const clothes: Record<string, Bucket> = {};
+    const clothesLabels: Record<string, string> = {};
+    for (const row of CLOTHES_ROWS) {
+      clothes[row.key] = emptyBucket();
+      clothesLabels[row.key] = row.label;
+    }
     const products: Record<ProductKey, Bucket> = {
       hangers: emptyBucket(),
       covers: emptyBucket(),
       other_products: emptyBucket(),
     };
-    if (!model) return { clothes, products };
+    if (!model) return { clothes, clothesLabels, products };
 
     for (const row of model.rows) {
       if (row.category !== "dry_cleaning") {
@@ -276,7 +289,10 @@ export function DailyCashReport() {
       // each garment group, sharing the line's quantity and money evenly.
       const pieces = splitGarments(row.items);
       pieces.forEach((piece, index) => {
-        const bucket = clothes[clothesGroup(piece)];
+        const group = clothesGroup(piece);
+        clothesLabels[group.key] = group.label;
+        const bucket = (clothes[group.key] =
+          clothes[group.key] || emptyBucket());
         bucket.qty += splitQuantity(row.qty, index, pieces.length);
         bucket.cash += shareOf(row.cash, index, pieces.length);
         bucket.momo += shareOf(row.momo, index, pieces.length);
@@ -284,22 +300,19 @@ export function DailyCashReport() {
         bucket.total += shareOf(row.total, index, pieces.length);
       });
     }
-    return { clothes, products };
+    return { clothes, clothesLabels, products };
   }, [model]);
 
   const clothesTotal = useMemo(
     () =>
-      CLOTHES_ROWS.reduce(
-        (sum, row) => {
-          const bucket = buckets.clothes[row.key];
-          return {
-            qty: sum.qty + bucket.qty,
-            cash: sum.cash + bucket.cash,
-            momo: sum.momo + bucket.momo,
-            debt: sum.debt + bucket.debt,
-            total: sum.total + bucket.total,
-          };
-        },
+      Object.values(buckets.clothes).reduce(
+        (sum, bucket) => ({
+          qty: sum.qty + bucket.qty,
+          cash: sum.cash + bucket.cash,
+          momo: sum.momo + bucket.momo,
+          debt: sum.debt + bucket.debt,
+          total: sum.total + bucket.total,
+        }),
         emptyBucket()
       ),
     [buckets]
@@ -334,13 +347,35 @@ export function DailyCashReport() {
     model?.accounts.find((account) => account.account === key)?.balance || 0;
 
   // Only rows that actually received something are printed: a garment group
-  // with no pieces (and no money) is left out entirely.
-  const visibleClothes = CLOTHES_ROWS.filter((row) => {
-    const bucket = buckets.clothes[row.key];
-    return Boolean(
-      bucket.qty || bucket.total || bucket.cash || bucket.momo || bucket.debt
-    );
-  });
+  // with no pieces (and no money) is left out entirely. Fixed rows keep their
+  // order, catalog items that are not fixed rows follow (most pieces first),
+  // and "Other Clothes" — now only names the catalog does not know — is last.
+  const visibleClothes = useMemo(() => {
+    const has = (bucket?: Bucket) =>
+      Boolean(
+        bucket &&
+          (bucket.qty || bucket.total || bucket.cash || bucket.momo || bucket.debt)
+      );
+    const fixedKeys = new Set(CLOTHES_ROWS.map((row) => row.key));
+    const fixed = CLOTHES_ROWS.filter((row) =>
+      has(buckets.clothes[row.key])
+    ).filter((row) => row.key !== "other");
+    const extra = Object.keys(buckets.clothes)
+      .filter((key) => !fixedKeys.has(key) && has(buckets.clothes[key]))
+      .map((key) => ({
+        key,
+        label: buckets.clothesLabels[key] || "Other Clothes",
+      }))
+      .sort(
+        (a, b) =>
+          buckets.clothes[b.key].qty - buckets.clothes[a.key].qty ||
+          a.label.localeCompare(b.label)
+      );
+    const other = has(buckets.clothes.other)
+      ? [{ key: "other", label: "Other Clothes" }]
+      : [];
+    return [...fixed, ...extra, ...other];
+  }, [buckets]);
   const visibleProducts = PRODUCT_ROWS.filter((row) => {
     const bucket = buckets.products[row.key];
     return Boolean(
