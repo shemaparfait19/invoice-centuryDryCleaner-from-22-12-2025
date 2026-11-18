@@ -17,7 +17,9 @@ import type { MoneyAccount } from "./types";
 import {
   addDaysYmd,
   getDayRangeIso,
+  round2,
   type DailyCashReportData,
+  type ReportProductPayment,
   type ReportExtraSale,
   type ReportInvoice,
   type ReportInvoicePayment,
@@ -36,6 +38,7 @@ export type {
   ReportModel,
   ReportOpening,
   ReportPayment,
+  ReportProductPayment,
   ReportSaleItem,
   ReportWithdrawal,
   SaleCategory,
@@ -219,6 +222,39 @@ export async function fetchDailyCashReport(
     );
   }
 
+  // --- product money collected later --------------------------------------
+  let productPayments: ReportProductPayment[] = [];
+  try {
+    const { data, error } = await supabase
+      .from("extra_sale_payments")
+      .select(
+        "id, extra_sale_id, amount, method, account, paid_at, sale:extra_sales!inner(id, sold_at, category, description, quantity, total_price)"
+      )
+      .gte("paid_at", fromIso)
+      .lte("paid_at", toIso)
+      .order("paid_at", { ascending: true });
+    if (error) throw error;
+    productPayments = (data || []).map((row: any) => ({
+      id: row.id,
+      extraSaleId: row.extra_sale_id,
+      amount: Number(row.amount || 0),
+      method: String(row.method || "").toUpperCase(),
+      account: (row.account as MoneyAccount | null) ?? null,
+      paidAt: row.paid_at,
+      saleSoldAt: row.sale?.sold_at || row.paid_at,
+      saleCategory: row.sale?.category === "extra" ? "extra" : "product",
+      saleDescription: row.sale?.description || "",
+      saleQuantity: Number(row.sale?.quantity || 0),
+      saleTotalPrice: Number(row.sale?.total_price || 0),
+    }));
+  } catch (error: any) {
+    if (String(error?.message || "").includes("extra_sale_payments")) {
+      issues.push(
+        "Product payments table not found — run scripts/add-extra-sale-payments.sql to collect products sold on credit."
+      );
+    }
+  }
+
   // --- withdrawals --------------------------------------------------------
   let withdrawals: ReportWithdrawal[] = [];
   try {
@@ -337,6 +373,225 @@ export async function deleteExtraSale(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+// The client columns come from scripts/add-extra-sale-client.sql. Until that
+// has run, the products page records sales without a buyer instead of failing.
+export async function extraSaleClientFieldsReady(): Promise<boolean> {
+  const { error } = await supabase
+    .from("extra_sales")
+    .select("client_name")
+    .limit(1);
+  return !error;
+}
+
+export async function updateExtraSale(
+  id: string,
+  patch: {
+    description?: string;
+    quantity?: number;
+    totalPrice?: number;
+    amountPaidCash?: number;
+    amountPaidMomo?: number;
+    soldAt?: string;
+    category?: "product" | "extra";
+    clientId?: string | null;
+    clientName?: string | null;
+  }
+): Promise<void> {
+  const row: Record<string, unknown> = {};
+  if (patch.clientId !== undefined) row.client_id = patch.clientId;
+  if (patch.clientName !== undefined) row.client_name = patch.clientName;
+  if (patch.description !== undefined) row.description = patch.description;
+  if (patch.quantity !== undefined) row.quantity = patch.quantity;
+  if (patch.totalPrice !== undefined) row.total_price = patch.totalPrice;
+  if (patch.amountPaidCash !== undefined) {
+    row.amount_paid_cash = patch.amountPaidCash;
+  }
+  if (patch.amountPaidMomo !== undefined) {
+    row.amount_paid_momo = patch.amountPaidMomo;
+  }
+  if (patch.soldAt !== undefined) row.sold_at = patch.soldAt;
+  if (patch.category !== undefined) row.category = patch.category;
+  const { error } = await supabase
+    .from("extra_sales")
+    .update(row)
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+// The newest product/extra sales, for the past-records list on the products
+// route.
+export async function fetchExtraSaleHistory(
+  limit: number
+): Promise<ReportExtraSale[]> {
+  const { data, error } = await supabase
+    .from("extra_sales")
+    .select("*")
+    .order("sold_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+  const rows = (data || []) as any[];
+
+  // Money handed over later, so a settled sale doesn't look like debt.
+  const collected = new Map<string, number>();
+  if (rows.length > 0) {
+    try {
+      const { data: payments } = await supabase
+        .from("extra_sale_payments")
+        .select("extra_sale_id, amount")
+        .in(
+          "extra_sale_id",
+          rows.map((row) => row.id)
+        );
+      for (const payment of (payments || []) as any[]) {
+        collected.set(
+          payment.extra_sale_id,
+          (collected.get(payment.extra_sale_id) || 0) +
+            Number(payment.amount || 0)
+        );
+      }
+    } catch {
+      // Migration not run yet: only what was paid at the counter counts.
+    }
+  }
+
+  return rows.map((row: any) => ({
+    id: row.id,
+    soldAt: row.sold_at,
+    category: row.category === "extra" ? "extra" : "product",
+    description: row.description || "",
+    quantity: Number(row.quantity || 0),
+    totalPrice: Number(row.total_price || 0),
+    amountPaidCash: Number(row.amount_paid_cash || 0),
+    amountPaidMomo: Number(row.amount_paid_momo || 0),
+    account: (row.account as MoneyAccount | null) ?? null,
+    clientId: row.client_id ?? null,
+    clientName: row.client_name ?? null,
+    collected: round2(collected.get(row.id) || 0),
+  }));
+}
+
+// One day's product/extra sales, for the products route.
+export async function fetchExtraSalesForDay(
+  ymd: string
+): Promise<ReportExtraSale[]> {
+  const { fromIso, toIso } = getDayRangeIso(ymd);
+  const { data, error } = await supabase
+    .from("extra_sales")
+    .select("*")
+    .gte("sold_at", fromIso)
+    .lte("sold_at", toIso)
+    .order("sold_at", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    soldAt: row.sold_at,
+    category: row.category === "extra" ? "extra" : "product",
+    description: row.description || "",
+    quantity: Number(row.quantity || 0),
+    totalPrice: Number(row.total_price || 0),
+    amountPaidCash: Number(row.amount_paid_cash || 0),
+    amountPaidMomo: Number(row.amount_paid_momo || 0),
+    account: (row.account as MoneyAccount | null) ?? null,
+    clientId: row.client_id ?? null,
+    clientName: row.client_name ?? null,
+  }));
+}
+
+// Products sold on credit that still owe money, so the shop can collect later.
+export interface UnpaidExtraSale {
+  id: string;
+  soldAt: string;
+  category: "product" | "extra";
+  description: string;
+  quantity: number;
+  totalPrice: number;
+  amountPaidCash: number;
+  amountPaidMomo: number;
+  // null clientName means a walk-in customer.
+  clientId: string | null;
+  clientName: string | null;
+  // Money handed over later, from extra_sale_payments.
+  collected: number;
+  paid: number;
+  balance: number;
+}
+
+export async function fetchUnpaidExtraSales(
+  beforeIso: string
+): Promise<UnpaidExtraSale[]> {
+  const { data, error } = await supabase
+    .from("extra_sales")
+    .select("*")
+    .lt("sold_at", beforeIso)
+    .order("sold_at", { ascending: true });
+  if (error) throw new Error(error.message);
+  const sales = (data || []) as any[];
+  if (sales.length === 0) return [];
+
+  const collected = new Map<string, number>();
+  try {
+    const { data: rows } = await supabase
+      .from("extra_sale_payments")
+      .select("extra_sale_id, amount")
+      .in(
+        "extra_sale_id",
+        sales.map((sale) => sale.id)
+      );
+    for (const row of (rows || []) as any[]) {
+      collected.set(
+        row.extra_sale_id,
+        (collected.get(row.extra_sale_id) || 0) + Number(row.amount || 0)
+      );
+    }
+  } catch {
+    // Migration not run yet: only what was paid at the counter counts.
+  }
+
+  return sales
+    .map((sale) => {
+      const totalPrice = Number(sale.total_price || 0);
+      const cash = Number(sale.amount_paid_cash || 0);
+      const momo = Number(sale.amount_paid_momo || 0);
+      const collectedAmount = collected.get(sale.id) || 0;
+      const paid = cash + momo + collectedAmount;
+      return {
+        id: sale.id,
+        soldAt: sale.sold_at,
+        category: sale.category === "extra" ? "extra" : "product",
+        description: sale.description || "",
+        quantity: Number(sale.quantity || 0),
+        totalPrice,
+        amountPaidCash: round2(cash),
+        amountPaidMomo: round2(momo),
+        clientId: sale.client_id ?? null,
+        clientName: sale.client_name ?? null,
+        collected: round2(collectedAmount),
+        paid: round2(paid),
+        balance: round2(totalPrice - paid),
+      } as UnpaidExtraSale;
+    })
+    .filter((sale) => sale.balance > 0.5);
+}
+
+export async function addExtraSalePayment(input: {
+  extraSaleId: string;
+  amount: number;
+  method: "CASH" | "MOMO";
+  account?: MoneyAccount | null;
+  paidAt: string;
+  createdBy?: string;
+}): Promise<void> {
+  const { error } = await supabase.from("extra_sale_payments").insert({
+    extra_sale_id: input.extraSaleId,
+    amount: input.amount,
+    method: input.method,
+    account: input.account || null,
+    paid_at: input.paidAt,
+    created_by: input.createdBy || null,
+  });
+  if (error) throw new Error(error.message);
+}
+
 export async function addExtraSale(input: {
   soldAt: string;
   category: "product" | "extra";
@@ -347,8 +602,11 @@ export async function addExtraSale(input: {
   amountPaidMomo: number;
   account?: MoneyAccount | null;
   createdBy?: string;
+  // Omitted clientName means a walk-in customer.
+  clientId?: string | null;
+  clientName?: string | null;
 }): Promise<void> {
-  const { error } = await supabase.from("extra_sales").insert({
+  const row: Record<string, unknown> = {
     sold_at: input.soldAt,
     category: input.category,
     description: input.description,
@@ -358,6 +616,9 @@ export async function addExtraSale(input: {
     amount_paid_momo: input.amountPaidMomo,
     account: input.account || null,
     created_by: input.createdBy || null,
-  });
+  };
+  if (input.clientId !== undefined) row.client_id = input.clientId;
+  if (input.clientName !== undefined) row.client_name = input.clientName;
+  const { error } = await supabase.from("extra_sales").insert(row);
   if (error) throw new Error(error.message);
 }

@@ -155,10 +155,11 @@ export function parseItemLine(text: string): ParsedItemLine[] | null {
   return cleaned;
 }
 
-// Products and extras (detergent, hanger, bouquet...) — used by the
-// product/extra sale form.
-export const PRODUCT_ITEM_NAMES = ITEMS.filter(
-  (item) => item.category !== "dry_cleaning"
-).map((item) => item.name);
+// Products and extras (the shop's own detergents, hanger, cover, bouquet...)
+// used by the products route. Products come first, then extras.
+export const PRODUCT_ITEM_NAMES = [
+  ...ITEMS.filter((item) => item.category === "product").map((item) => item.name),
+  ...ITEMS.filter((item) => item.category === "extra").map((item) => item.name),
+];
 
 export const ALL_ITEM_NAMES = ITEMS.map((item) => item.name);

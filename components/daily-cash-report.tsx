@@ -13,23 +13,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CurrencyInput } from "@/components/ui/currency-input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Printer, RefreshCw, Plus, Trash2 } from "lucide-react";
+import { Printer, RefreshCw } from "lucide-react";
 import { formatCurrency, getLocalDateString } from "@/lib/utils";
 import { lookupItemName } from "@/lib/item-catalog";
 import { toast } from "@/hooks/use-toast";
 import {
-  addExtraSale,
-  deleteExtraSale,
   fetchDailyCashReport,
-  getDayRangeIso,
   parseLocalYmd,
   saveOpeningBalances,
 } from "@/lib/daily-cash-report";
@@ -62,6 +51,64 @@ interface Bucket {
 interface GroupedLine extends Bucket {
   key: string;
   label: string;
+}
+
+function hasValue(bucket?: Bucket): boolean {
+  return Boolean(
+    bucket &&
+      (bucket.qty || bucket.total || bucket.cash || bucket.momo || bucket.debt)
+  );
+}
+
+function sumLines(lines: GroupedLine[]): Bucket {
+  return lines.reduce(
+    (sum, line) => ({
+      qty: sum.qty + line.qty,
+      cash: sum.cash + line.cash,
+      momo: sum.momo + line.momo,
+      debt: sum.debt + line.debt,
+      total: sum.total + line.total,
+    }),
+    emptyBucket()
+  );
+}
+
+function sumBuckets(buckets: Record<string, Bucket>): Bucket {
+  return Object.values(buckets).reduce(
+    (sum, bucket) => ({
+      qty: sum.qty + bucket.qty,
+      cash: sum.cash + bucket.cash,
+      momo: sum.momo + bucket.momo,
+      debt: sum.debt + bucket.debt,
+      total: sum.total + bucket.total,
+    }),
+    emptyBucket()
+  );
+}
+
+// Only groups that actually received something are printed: a garment group
+// with no pieces (and no money) is left out entirely. Fixed rows keep their
+// order, catalog items that are not fixed rows follow (most pieces first),
+// and "Other Clothes" — only names the catalog does not know — is last.
+function visibleGroupRows(
+  buckets: Record<string, Bucket>,
+  labels: Record<string, string>
+): { key: string; label: string }[] {
+  const fixedKeys = new Set(CLOTHES_ROWS.map((row) => row.key));
+  const fixed = CLOTHES_ROWS.filter(
+    (row) => row.key !== "other" && hasValue(buckets[row.key])
+  );
+  const extra = Object.keys(buckets)
+    .filter((key) => !fixedKeys.has(key) && hasValue(buckets[key]))
+    .map((key) => ({ key, label: labels[key] || "Other Clothes" }))
+    .sort(
+      (a, b) =>
+        buckets[b.key].qty - buckets[a.key].qty || a.label.localeCompare(b.label)
+    );
+  const other = hasValue(buckets.other)
+    ? [{ key: "other", label: "Other Clothes" }]
+    : [];
+  return [...fixed, ...extra, ...other];
 }
 
 // The fixed rows, in print order. Anything else the catalog knows becomes its
@@ -200,23 +247,6 @@ function money(value: number): string {
   return value ? formatCurrency(value) : "—";
 }
 
-// One line in the "product sold" dialog. Several lines can be saved at once.
-interface SaleDraft {
-  description: string;
-  quantity: string;
-  total: string;
-  cash: string;
-  momo: string;
-}
-
-const emptySaleDraft = (): SaleDraft => ({
-  description: "",
-  quantity: "1",
-  total: "",
-  cash: "",
-  momo: "",
-});
-
 export function DailyCashReport() {
   const [selectedDate, setSelectedDate] = useState(getLocalDateString());
   const [loadedDate, setLoadedDate] = useState<string | null>(null);
@@ -246,13 +276,10 @@ export function DailyCashReport() {
     load(getLocalDateString());
   }, [load]);
 
-  // Today's business only: old-debt collections (payments for invoices created
-  // on an earlier day) are left out entirely.
+  // The whole day, old-debt collections included: page 1 prints what came in
+  // today, page 2 prints what was collected today for invoices made earlier.
   const model = useMemo(
-    () =>
-      data && loadedDate
-        ? buildReport({ ...data, dayPayments: [] }, loadedDate)
-        : null,
+    () => (data && loadedDate ? buildReport(data, loadedDate) : null),
     [data, loadedDate]
   );
 
@@ -260,29 +287,46 @@ export function DailyCashReport() {
 
   const buckets = useMemo(() => {
     // Keyed by group: the fixed rows, plus "item:<name>" for catalog items
-    // that have no fixed row of their own.
-    const clothes: Record<string, Bucket> = {};
-    const clothesLabels: Record<string, string> = {};
-    for (const row of CLOTHES_ROWS) {
-      clothes[row.key] = emptyBucket();
-      clothesLabels[row.key] = row.label;
-    }
-    const products: Record<ProductKey, Bucket> = {
+    // that have no fixed row of their own. Two sides: what came in today, and
+    // what was collected today for invoices made on an earlier day.
+    const emptyClothes = () => {
+      const clothes: Record<string, Bucket> = {};
+      const labels: Record<string, string> = {};
+      for (const row of CLOTHES_ROWS) {
+        clothes[row.key] = emptyBucket();
+        labels[row.key] = row.label;
+      }
+      return { clothes, labels };
+    };
+    const emptyProducts = (): Record<string, Bucket> => ({
       hangers: emptyBucket(),
       covers: emptyBucket(),
       other_products: emptyBucket(),
-    };
-    if (!model) return { clothes, clothesLabels, products };
+    });
 
-    for (const row of model.rows) {
+    const today = { ...emptyClothes(), products: emptyProducts() };
+    const past = { ...emptyClothes(), products: emptyProducts() };
+
+    if (!model) {
+      return {
+        clothes: today.clothes,
+        clothesLabels: today.labels,
+        products: today.products,
+        pastClothes: past.clothes,
+        pastClothesLabels: past.labels,
+        pastProducts: past.products,
+      };
+    }
+
+    const add = (side: typeof today, row: (typeof model.rows)[number]) => {
       if (row.category !== "dry_cleaning") {
-        const bucket = products[productGroup(row.items)];
+        const bucket = side.products[productGroup(row.items)];
         bucket.qty += row.qty;
         bucket.cash += row.cash;
         bucket.momo += row.momo;
         bucket.debt += row.debt;
         bucket.total += row.total;
-        continue;
+        return;
       }
 
       // A line naming several garments ("trouser and shirt") is counted in
@@ -290,49 +334,37 @@ export function DailyCashReport() {
       const pieces = splitGarments(row.items);
       pieces.forEach((piece, index) => {
         const group = clothesGroup(piece);
-        clothesLabels[group.key] = group.label;
-        const bucket = (clothes[group.key] =
-          clothes[group.key] || emptyBucket());
+        side.labels[group.key] = group.label;
+        const bucket = (side.clothes[group.key] =
+          side.clothes[group.key] || emptyBucket());
         bucket.qty += splitQuantity(row.qty, index, pieces.length);
         bucket.cash += shareOf(row.cash, index, pieces.length);
         bucket.momo += shareOf(row.momo, index, pieces.length);
         bucket.debt += shareOf(row.debt, index, pieces.length);
         bucket.total += shareOf(row.total, index, pieces.length);
       });
-    }
-    return { clothes, clothesLabels, products };
+    };
+
+    for (const row of model.rows) add(row.oldDebt ? past : today, row);
+
+    return {
+      clothes: today.clothes,
+      clothesLabels: today.labels,
+      products: today.products,
+      pastClothes: past.clothes,
+      pastClothesLabels: past.labels,
+      pastProducts: past.products,
+    };
   }, [model]);
 
-  const clothesTotal = useMemo(
-    () =>
-      Object.values(buckets.clothes).reduce(
-        (sum, bucket) => ({
-          qty: sum.qty + bucket.qty,
-          cash: sum.cash + bucket.cash,
-          momo: sum.momo + bucket.momo,
-          debt: sum.debt + bucket.debt,
-          total: sum.total + bucket.total,
-        }),
-        emptyBucket()
-      ),
+  const clothesTotal = useMemo(() => sumBuckets(buckets.clothes), [buckets]);
+  const productsTotal = useMemo(() => sumBuckets(buckets.products), [buckets]);
+  const pastClothesTotal = useMemo(
+    () => sumBuckets(buckets.pastClothes),
     [buckets]
   );
-
-  const productsTotal = useMemo(
-    () =>
-      PRODUCT_ROWS.reduce(
-        (sum, row) => {
-          const bucket = buckets.products[row.key];
-          return {
-            qty: sum.qty + bucket.qty,
-            cash: sum.cash + bucket.cash,
-            momo: sum.momo + bucket.momo,
-            debt: sum.debt + bucket.debt,
-            total: sum.total + bucket.total,
-          };
-        },
-        emptyBucket()
-      ),
+  const pastProductsTotal = useMemo(
+    () => sumBuckets(buckets.pastProducts),
     [buckets]
   );
 
@@ -341,47 +373,37 @@ export function DailyCashReport() {
   const totalDebt = clothesTotal.debt + productsTotal.debt;
   const grandTotal = cashReceived + momoReceived;
 
+  // Collected today on invoices made on an earlier day. Only the money taken
+  // today counts here — when a client pays the last part of an old invoice,
+  // that part is what shows, not the invoice's original total.
+  const pastCash = pastClothesTotal.cash + pastProductsTotal.cash;
+  const pastMomo = pastClothesTotal.momo + pastProductsTotal.momo;
+  const pastReceived = pastCash + pastMomo;
+  const pastPieces = pastClothesTotal.qty + pastProductsTotal.qty;
+
   // Money sitting on each phone: what was there at the start, plus what came
   // in today, minus anything taken out.
   const phoneBalance = (key: "cleaner_phone" | "products_phone") =>
     model?.accounts.find((account) => account.account === key)?.balance || 0;
 
-  // Only rows that actually received something are printed: a garment group
-  // with no pieces (and no money) is left out entirely. Fixed rows keep their
-  // order, catalog items that are not fixed rows follow (most pieces first),
-  // and "Other Clothes" — now only names the catalog does not know — is last.
-  const visibleClothes = useMemo(() => {
-    const has = (bucket?: Bucket) =>
-      Boolean(
-        bucket &&
-          (bucket.qty || bucket.total || bucket.cash || bucket.momo || bucket.debt)
-      );
-    const fixedKeys = new Set(CLOTHES_ROWS.map((row) => row.key));
-    const fixed = CLOTHES_ROWS.filter((row) =>
-      has(buckets.clothes[row.key])
-    ).filter((row) => row.key !== "other");
-    const extra = Object.keys(buckets.clothes)
-      .filter((key) => !fixedKeys.has(key) && has(buckets.clothes[key]))
-      .map((key) => ({
-        key,
-        label: buckets.clothesLabels[key] || "Other Clothes",
-      }))
-      .sort(
-        (a, b) =>
-          buckets.clothes[b.key].qty - buckets.clothes[a.key].qty ||
-          a.label.localeCompare(b.label)
-      );
-    const other = has(buckets.clothes.other)
-      ? [{ key: "other", label: "Other Clothes" }]
-      : [];
-    return [...fixed, ...extra, ...other];
-  }, [buckets]);
-  const visibleProducts = PRODUCT_ROWS.filter((row) => {
-    const bucket = buckets.products[row.key];
-    return Boolean(
-      bucket.qty || bucket.total || bucket.cash || bucket.momo || bucket.debt
-    );
-  });
+  const visibleClothes = useMemo(
+    () => visibleGroupRows(buckets.clothes, buckets.clothesLabels),
+    [buckets]
+  );
+  const visibleProducts = useMemo(
+    () =>
+      PRODUCT_ROWS.filter((row) => hasValue(buckets.products[row.key])),
+    [buckets]
+  );
+  const pastVisibleClothes = useMemo(
+    () => visibleGroupRows(buckets.pastClothes, buckets.pastClothesLabels),
+    [buckets]
+  );
+  const pastVisibleProducts = useMemo(
+    () =>
+      PRODUCT_ROWS.filter((row) => hasValue(buckets.pastProducts[row.key])),
+    [buckets]
+  );
 
   // The day can be read two ways: by garment group (the totals the boss
   // signs) or invoice by invoice (what actually came in, in the order it
@@ -446,7 +468,7 @@ export function DailyCashReport() {
         ...buckets.products[row.key],
       }));
     }
-    // Products sold on their own (the "Product sold" dialog) keep their own
+    // Products sold on their own (recorded on the /products route) keep their own
     // line so each one can still be deleted, and a detergent invoice stays one
     // line as well.
     const manual = model ? model.rows.filter((row) => row.sourceId) : [];
@@ -473,53 +495,57 @@ export function DailyCashReport() {
     ];
   }, [groupBy, visibleProducts, buckets, model, productInvoiceRows]);
 
+  // Page 2: invoices made on an earlier day that were paid today.
+  const pastInvoiceRows = useMemo(
+    () => (model ? model.invoiceRows.filter((row) => row.oldDebt) : []),
+    [model]
+  );
+
+  const pastClothesLines = useMemo<GroupedLine[]>(() => {
+    if (groupBy === "invoice") {
+      return pastInvoiceRows.map((row) => ({
+        key: row.key,
+        label: row.items,
+        qty: row.qty,
+        cash: row.cash,
+        momo: row.momo,
+        debt: row.debt,
+        total: row.total,
+      }));
+    }
+    return pastVisibleClothes.map((row) => ({
+      key: row.key,
+      label: row.label,
+      ...buckets.pastClothes[row.key],
+    }));
+  }, [groupBy, pastVisibleClothes, buckets, pastInvoiceRows]);
+
+  const pastProductLines = useMemo<GroupedLine[]>(() => {
+    if (groupBy === "invoice") return [];
+    return pastVisibleProducts.map((row) => ({
+      key: row.key,
+      label: row.label,
+      ...buckets.pastProducts[row.key],
+    }));
+  }, [groupBy, pastVisibleProducts, buckets]);
+
   // Footer sums follow whatever is printed, so the table always adds up.
   const clothesLinesTotal = useMemo(
-    () =>
-      clothesLines.reduce(
-        (sum, line) => ({
-          qty: sum.qty + line.qty,
-          cash: sum.cash + line.cash,
-          momo: sum.momo + line.momo,
-          debt: sum.debt + line.debt,
-          total: sum.total + line.total,
-        }),
-        emptyBucket()
-      ),
+    () => sumLines(clothesLines),
     [clothesLines]
   );
-
   const productLinesTotal = useMemo(
-    () =>
-      productLines.reduce(
-        (sum, line) => ({
-          qty: sum.qty + line.qty,
-          cash: sum.cash + line.cash,
-          momo: sum.momo + line.momo,
-          debt: sum.debt + line.debt,
-          total: sum.total + line.total,
-        }),
-        emptyBucket()
-      ),
+    () => sumLines(productLines),
     [productLines]
   );
-
-  // --- product / extra sale entry -----------------------------------------
-  const [saleOpen, setSaleOpen] = useState(false);
-  const [saleRows, setSaleRows] = useState<SaleDraft[]>([emptySaleDraft()]);
-  const [savingSale, setSavingSale] = useState(false);
-
-  const updateSaleRow = (index: number, patch: Partial<SaleDraft>) =>
-    setSaleRows((rows) =>
-      rows.map((row, i) => (i === index ? { ...row, ...patch } : row))
-    );
-  const addSaleRow = () => setSaleRows((rows) => [...rows, emptySaleDraft()]);
-  const removeSaleRow = (index: number) =>
-    setSaleRows((rows) =>
-      rows.length === 1
-        ? [emptySaleDraft()]
-        : rows.filter((_, i) => i !== index)
-    );
+  const pastClothesLinesTotal = useMemo(
+    () => sumLines(pastClothesLines),
+    [pastClothesLines]
+  );
+  const pastProductLinesTotal = useMemo(
+    () => sumLines(pastProductLines),
+    [pastProductLines]
+  );
 
   // What is already on each phone at the start of the day.
   const [phonesCleaner, setPhonesCleaner] = useState("");
@@ -534,74 +560,6 @@ export function DailyCashReport() {
       data?.opening ? String(data.opening.openingProductsPhone) : ""
     );
   }, [data]);
-
-  const submitSales = async () => {
-    // Blank lines are ignored, so you can leave the last row empty.
-    const drafts = saleRows.filter((row) => row.description.trim());
-    if (drafts.length === 0) {
-      toast({ title: "Enter what was sold", variant: "destructive" });
-      return;
-    }
-
-    const parsed = drafts.map((row) => ({
-      description: row.description.trim(),
-      quantity: Number(row.quantity.replace(/[^0-9.]/g, "")) || 1,
-      total: Number(row.total.replace(/[^0-9.]/g, "")) || 0,
-      cash: Number(row.cash.replace(/[^0-9.]/g, "")) || 0,
-      momo: Number(row.momo.replace(/[^0-9.]/g, "")) || 0,
-    }));
-
-    const badTotal = parsed.find((sale) => sale.total <= 0);
-    if (badTotal) {
-      toast({
-        title: `Enter the total price for ${badTotal.description}`,
-        variant: "destructive",
-      });
-      return;
-    }
-    const overpaid = parsed.find(
-      (sale) => sale.cash + sale.momo > sale.total + 0.5
-    );
-    if (overpaid) {
-      toast({
-        title: `Paid more than the total for ${overpaid.description}`,
-        description: "Check the cash and MoMo amounts.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setSavingSale(true);
-    const { fromIso } = getDayRangeIso(reportDate);
-    let saved = 0;
-    try {
-      for (const sale of parsed) {
-        await addExtraSale({
-          soldAt: fromIso,
-          category: /hanger|cover/i.test(sale.description) ? "extra" : "product",
-          description: sale.description,
-          quantity: sale.quantity,
-          totalPrice: sale.total,
-          amountPaidCash: sale.cash,
-          amountPaidMomo: sale.momo,
-        });
-        saved += 1;
-      }
-      // The dialog stays open with a fresh line, so more can be added at once.
-      setSaleRows([emptySaleDraft()]);
-      await load(reportDate);
-      toast({ title: `${saved} sale${saved === 1 ? "" : "s"} recorded` });
-    } catch (error: any) {
-      toast({
-        title: saved > 0 ? `${saved} saved, the rest failed` : "Could not save the sale",
-        description: error?.message || "Please try again.",
-        variant: "destructive",
-      });
-      if (saved > 0) await load(reportDate);
-    } finally {
-      setSavingSale(false);
-    }
-  };
 
   const submitPhones = async () => {
     const cleanerPhone = Number(phonesCleaner.replace(/[^0-9.]/g, "")) || 0;
@@ -628,20 +586,6 @@ export function DailyCashReport() {
       });
     } finally {
       setSavingPhones(false);
-    }
-  };
-
-  const removeSale = async (id: string) => {
-    try {
-      await deleteExtraSale(id);
-      await load(reportDate);
-      toast({ title: "Sale deleted" });
-    } catch (error: any) {
-      toast({
-        title: "Could not delete the sale",
-        description: error?.message || "Please try again.",
-        variant: "destructive",
-      });
     }
   };
 
@@ -698,14 +642,6 @@ export function DailyCashReport() {
               By invoice
             </Button>
           </div>
-          <Button
-            variant="secondary"
-            onClick={() => setSaleOpen(true)}
-            className="flex items-center gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Product sold
-          </Button>
         </div>
       </div>
 
@@ -740,7 +676,7 @@ export function DailyCashReport() {
         </p>
       </div>
 
-      <div className="print-content mx-auto max-w-3xl px-4 pb-10">
+      <div className="print-content print-flow mx-auto max-w-3xl px-4 pb-10">
         <h2 className="mt-2 text-center text-lg font-bold uppercase tracking-wide">
           Daily Business Report
         </h2>
@@ -953,149 +889,174 @@ export function DailyCashReport() {
               </div>
             </div>
 
-            <p className="mt-8 text-center text-sm font-semibold uppercase tracking-wide">
-              End of daily report
-            </p>
+            {/* PAGE 2 — invoices made on an earlier day that were paid today.
+                Only the money taken today appears here; a client finishing the
+                last part of an old invoice shows that part, not the old total. */}
+            <div className="print-page-break mt-10 border-t-2 border-black pt-6 print:border-0 print:pt-0">
+              <h2 className="mt-2 text-center text-lg font-bold uppercase tracking-wide">
+                Past Invoices Paid Today
+              </h2>
+              <p className="mb-4 text-center text-sm">
+                Date: {formatReportDate(reportDate)}
+                <span className="ml-1 text-xs uppercase tracking-wide text-muted-foreground">
+                  · not sold today
+                </span>
+              </p>
 
-            {data && data.extraSales.length > 0 && (
-              <div className="no-print mt-6 rounded-md border p-3 text-xs">
-                <p className="mb-1 font-semibold">
-                  Product sales recorded on {formatReportDate(reportDate)}
-                </p>
-                <ul className="space-y-1">
-                  {data.extraSales.map((sale) => (
-                    <li
-                      key={sale.id}
-                      className="flex items-center justify-between gap-3"
-                    >
-                      <span>
-                        {sale.description} × {sale.quantity} —{" "}
-                        {formatCurrency(sale.totalPrice)}
-                      </span>
-                      <button
-                        type="button"
-                        title="Delete this sale"
-                        onClick={() => removeSale(sale.id)}
-                        className="text-red-600 hover:text-red-800"
+              <h3 className="mb-1 font-bold">
+                1. CLOTHES PAID FOR TODAY (FROM EARLIER INVOICES)
+              </h3>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-muted print:bg-transparent">
+                    <th className={`${cell} text-left`}>Items</th>
+                    <th className={`${cell} text-right`}>Quantity</th>
+                    <th className={`${cell} text-right`}>Cash</th>
+                    <th className={`${cell} text-right`}>MoMo</th>
+                    <th className={`${cell} text-right`}>Total Received</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pastClothesLines.length === 0 && (
+                    <tr>
+                      <td
+                        className={`${cell} text-muted-foreground`}
+                        colSpan={5}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </li>
+                        Nothing from earlier invoices was paid today.
+                      </td>
+                    </tr>
+                  )}
+                  {pastClothesLines.map((line) => (
+                    <tr key={line.key}>
+                      <td
+                        className={`${cell} ${
+                          groupBy === "invoice" ? "text-xs leading-snug" : ""
+                        }`}
+                      >
+                        {line.label}
+                      </td>
+                      <td className={`${cell} text-right`}>
+                        {line.qty || ""}
+                      </td>
+                      <td className={`${cell} text-right`}>
+                        {money(line.cash)}
+                      </td>
+                      <td className={`${cell} text-right`}>
+                        {money(line.momo)}
+                      </td>
+                      <td className={`${cell} text-right`}>
+                        {money(line.total)}
+                      </td>
+                    </tr>
                   ))}
-                </ul>
+                </tbody>
+                <tfoot>
+                  <tr className="font-bold">
+                    <td className={cell}>TOTAL</td>
+                    <td className={`${cell} text-right`}>
+                      {pastClothesLinesTotal.qty}
+                    </td>
+                    <td className={`${cell} text-right`}>
+                      {formatCurrency(pastClothesLinesTotal.cash)}
+                    </td>
+                    <td className={`${cell} text-right`}>
+                      {formatCurrency(pastClothesLinesTotal.momo)}
+                    </td>
+                    <td className={`${cell} text-right`}>
+                      {formatCurrency(pastClothesLinesTotal.total)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+
+              {(
+                <>
+                  <h3 className="mb-1 mt-5 font-bold">
+                    2. PRODUCTS PAID FOR TODAY (FROM EARLIER INVOICES)
+                  </h3>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-muted print:bg-transparent">
+                        <th className={`${cell} text-left`}>Products</th>
+                        <th className={`${cell} text-right`}>Quantity</th>
+                        <th className={`${cell} text-right`}>Cash</th>
+                        <th className={`${cell} text-right`}>MoMo</th>
+                        <th className={`${cell} text-right`}>Total Received</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pastProductLines.length === 0 && (
+                        <tr>
+                          <td
+                            className={`${cell} text-muted-foreground`}
+                            colSpan={5}
+                          >
+                            No products from earlier invoices were paid today.
+                          </td>
+                        </tr>
+                      )}
+                      {pastProductLines.map((line) => (
+                        <tr key={line.key}>
+                          <td className={cell}>{line.label}</td>
+                          <td className={`${cell} text-right`}>
+                            {line.qty || ""}
+                          </td>
+                          <td className={`${cell} text-right`}>
+                            {money(line.cash)}
+                          </td>
+                          <td className={`${cell} text-right`}>
+                            {money(line.momo)}
+                          </td>
+                          <td className={`${cell} text-right`}>
+                            {money(line.total)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="font-bold">
+                        <td className={cell}>TOTAL</td>
+                        <td className={`${cell} text-right`}>
+                          {pastProductLinesTotal.qty}
+                        </td>
+                        <td className={`${cell} text-right`}>
+                          {formatCurrency(pastProductLinesTotal.cash)}
+                        </td>
+                        <td className={`${cell} text-right`}>
+                          {formatCurrency(pastProductLinesTotal.momo)}
+                        </td>
+                        <td className={`${cell} text-right`}>
+                          {formatCurrency(pastProductLinesTotal.total)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </>
+              )}
+
+              <h3 className="mb-1 mt-5 font-bold">
+                3. SUMMARY OF EARLIER INVOICES
+              </h3>
+              <div className="space-y-1 text-sm">
+                <p>- Total pieces collected today: {pastPieces}</p>
+                <p>- Total Cash Received: {formatCurrency(pastCash)}</p>
+                <p>- Total MoMo Received: {formatCurrency(pastMomo)}</p>
+                <p className="mt-2 border-t border-black pt-2 text-base font-bold">
+                  TOTAL RECEIVED ON EARLIER INVOICES:{" "}
+                  {formatCurrency(pastReceived)}
+                </p>
               </div>
-            )}
+
+              <p className="mt-8 text-center text-sm font-semibold uppercase tracking-wide">
+                End of daily report
+              </p>
+            </div>
+
           </>
         )}
       </div>
 
-      <Dialog open={saleOpen} onOpenChange={setSaleOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Product / extra sold</DialogTitle>
-            <DialogDescription>
-              Add as many products as you like, then save them all at once.
-              Hangers, covers, detergent — sold outside an invoice.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
-            {saleRows.map((row, index) => (
-              <div key={index} className="space-y-2 rounded-md border p-2">
-                <div className="flex items-end gap-2">
-                  <div className="flex-1">
-                    <Label htmlFor={`sale-description-${index}`}>
-                      Item {index + 1}
-                    </Label>
-                    <Input
-                      id={`sale-description-${index}`}
-                      value={row.description}
-                      onChange={(e) =>
-                        updateSaleRow(index, { description: e.target.value })
-                      }
-                      placeholder="e.g. Hanger, Cover, Detergent"
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    title="Remove this line"
-                    onClick={() => removeSaleRow(index)}
-                    disabled={saleRows.length === 1}
-                  >
-                    <Trash2 className="h-4 w-4 text-red-600" />
-                  </Button>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Label htmlFor={`sale-qty-${index}`}>Quantity</Label>
-                    <Input
-                      id={`sale-qty-${index}`}
-                      inputMode="numeric"
-                      value={row.quantity}
-                      onChange={(e) =>
-                        updateSaleRow(index, {
-                          quantity: e.target.value.replace(/[^0-9]/g, ""),
-                        })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor={`sale-total-${index}`}>Total price</Label>
-                    <CurrencyInput
-                      id={`sale-total-${index}`}
-                      value={row.total}
-                      onChange={(value) =>
-                        updateSaleRow(index, { total: value })
-                      }
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Label htmlFor={`sale-cash-${index}`}>Paid cash</Label>
-                    <CurrencyInput
-                      id={`sale-cash-${index}`}
-                      value={row.cash}
-                      onChange={(value) => updateSaleRow(index, { cash: value })}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor={`sale-momo-${index}`}>Paid MoMo</Label>
-                    <CurrencyInput
-                      id={`sale-momo-${index}`}
-                      value={row.momo}
-                      onChange={(value) => updateSaleRow(index, { momo: value })}
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={addSaleRow}
-              className="w-full"
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Add another item
-            </Button>
-          </div>
-
-          <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
-            <span className="text-xs text-muted-foreground">
-              {saleRows.filter((row) => row.description.trim()).length} item(s)
-              ready — they are saved together.
-            </span>
-            <Button onClick={submitSales} disabled={savingSale}>
-              {savingSale ? "Saving..." : "Save all"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
     </div>
   );

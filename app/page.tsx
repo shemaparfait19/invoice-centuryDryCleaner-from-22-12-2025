@@ -533,6 +533,11 @@ export default function HomePage() {
               >
                 Reports
               </Button>
+              <Link href="/products">
+                <Button variant="ghost" size="sm" className="flex-1 sm:flex-none">
+                  Products
+                </Button>
+              </Link>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button

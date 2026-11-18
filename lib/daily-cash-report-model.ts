@@ -58,6 +58,27 @@ export interface ReportExtraSale {
   amountPaidCash: number;
   amountPaidMomo: number;
   account: MoneyAccount | null;
+  // Who bought it. null clientName means a walk-in customer. Never printed
+  // on the daily report.
+  clientId?: string | null;
+  clientName?: string | null;
+  // Money handed over after the sale (filled in by the history list only).
+  collected?: number;
+}
+
+// Money collected on a later day for a product / extra sold on credit.
+export interface ReportProductPayment {
+  id: string;
+  extraSaleId: string;
+  amount: number;
+  method: string;
+  account: MoneyAccount | null;
+  paidAt: string;
+  saleSoldAt: string;
+  saleCategory: "product" | "extra";
+  saleDescription: string;
+  saleQuantity: number;
+  saleTotalPrice: number;
 }
 
 export interface ReportWithdrawal {
@@ -79,6 +100,8 @@ export interface DailyCashReportData {
   invoices: ReportInvoice[];
   dayPayments: ReportPayment[];
   extraSales: ReportExtraSale[];
+  // Product money collected on the report's day for sales made earlier.
+  productPayments?: ReportProductPayment[];
   withdrawals: ReportWithdrawal[];
   opening: ReportOpening | null;
   // Human-readable setup problems (e.g. migration not run yet) shown in the
@@ -578,6 +601,39 @@ export function buildReport(
     });
   }
 
+  // Product money handed over today for a product sold on credit. When the
+  // sale was made on an earlier day it belongs on page 2 with the old
+  // invoices; when it was sold and paid today it is simply today's money.
+  for (const payment of data.productPayments || []) {
+    const soldOn = Date.parse(payment.saleSoldAt);
+    if (Number.isNaN(soldOn)) continue;
+    const sameDay = soldOn >= fromTime && soldOn <= toTime;
+    const category: SaleCategory =
+      payment.saleCategory === "extra" ? "extra" : "product";
+    const isCash = payment.method === "CASH";
+    const isMomo = payment.method === "MOMO";
+    if (isCash || isMomo) {
+      addToAccount(payment.method, payment.account, category, payment.amount);
+    }
+    rows.push({
+      key: `pp-${payment.id}`,
+      items: canonicalItemName(shortItemName(payment.saleDescription)),
+      // The pieces were counted on the day they were sold; this row is only
+      // the money that arrived today.
+      qty: 0,
+      cash: isCash ? payment.amount : 0,
+      momo: isMomo ? payment.amount : 0,
+      pendingMomo: 0,
+      other: isCash || isMomo ? 0 : payment.amount,
+      total: payment.amount,
+      debt: 0,
+      category,
+      time: Date.parse(payment.paidAt),
+      status: "paid",
+      oldDebt: !sameDay,
+    });
+  }
+
   rows.sort((a, b) => a.time - b.time);
 
   // Payments received today against invoices created on an earlier day.
@@ -706,7 +762,10 @@ export function buildReport(
       mergedRows.push(row);
       continue;
     }
-    const key = `${row.category}|${row.items}`;
+    // Old-debt money is printed on its own sheet, so it must never merge into
+    // a garment collected today (that would pull yesterday's cash onto today's
+    // page). Old-debt rows still merge with each other.
+    const key = `${row.oldDebt ? "old" : "new"}|${row.category}|${row.items}`;
     const existing = mergedByItem.get(key);
     if (!existing) {
       const copy = { ...row };

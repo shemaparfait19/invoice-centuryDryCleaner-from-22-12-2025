@@ -104,6 +104,48 @@
     font-size: 11px;
   }
 
+  /* The daily report prints on two sheets.  Keeping it in normal flow (instead
+     of the absolute positioning above) is what lets a page break actually
+     split it; everything outside the report is already display:none. */
+  /* The daily report is two sheets, so it keeps normal flow (the absolute
+     positioning above would fight the page break). It is also sized down a
+     little: a busy day (10+ garment rows, products, summary and signatures)
+     has to stay on one sheet. */
+  .print-content.print-flow {
+    position: static;
+    font-size: 10px;
+    max-width: none;
+    padding: 0;
+  }
+
+  .print-content.print-flow table {
+    font-size: 10px;
+  }
+
+  .print-content.print-flow th,
+  .print-content.print-flow td {
+    padding: 1px 3px;
+  }
+
+  .print-content.print-flow h2 {
+    font-size: 13px;
+    margin: 0 0 2px;
+  }
+
+  .print-content.print-flow h3 {
+    font-size: 11px;
+    margin: 6px 0 2px;
+  }
+
+  .print-content.print-flow p {
+    margin: 1px 0 0;
+  }
+
+  .print-page-break {
+    break-before: page;
+    page-break-before: always;
+  }
+
   .print-content [class*="bg-card"],
   .print-content [class*="bg-muted"],
   .print-content [class*="bg-background"] {
