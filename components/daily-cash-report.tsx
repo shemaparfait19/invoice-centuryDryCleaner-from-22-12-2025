@@ -11,17 +11,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { CurrencyInput } from "@/components/ui/currency-input";
 import { Printer, RefreshCw } from "lucide-react";
 import { formatCurrency, getLocalDateString } from "@/lib/utils";
 import { lookupItemName } from "@/lib/item-catalog";
 import { toast } from "@/hooks/use-toast";
-import {
-  fetchDailyCashReport,
-  parseLocalYmd,
-  saveOpeningBalances,
-} from "@/lib/daily-cash-report";
+import { fetchDailyCashReport, parseLocalYmd } from "@/lib/daily-cash-report";
 import {
   buildReport,
   classifyInvoice,
@@ -381,11 +375,6 @@ export function DailyCashReport() {
   const pastReceived = pastCash + pastMomo;
   const pastPieces = pastClothesTotal.qty + pastProductsTotal.qty;
 
-  // Money sitting on each phone: what was there at the start, plus what came
-  // in today, minus anything taken out.
-  const phoneBalance = (key: "cleaner_phone" | "products_phone") =>
-    model?.accounts.find((account) => account.account === key)?.balance || 0;
-
   const visibleClothes = useMemo(
     () => visibleGroupRows(buckets.clothes, buckets.clothesLabels),
     [buckets]
@@ -547,48 +536,6 @@ export function DailyCashReport() {
     [pastProductLines]
   );
 
-  // What is already on each phone at the start of the day.
-  const [phonesCleaner, setPhonesCleaner] = useState("");
-  const [phonesProducts, setPhonesProducts] = useState("");
-  const [savingPhones, setSavingPhones] = useState(false);
-
-  useEffect(() => {
-    setPhonesCleaner(
-      data?.opening ? String(data.opening.openingCleanerPhone) : ""
-    );
-    setPhonesProducts(
-      data?.opening ? String(data.opening.openingProductsPhone) : ""
-    );
-  }, [data]);
-
-  const submitPhones = async () => {
-    const cleanerPhone = Number(phonesCleaner.replace(/[^0-9.]/g, "")) || 0;
-    const productsPhone = Number(phonesProducts.replace(/[^0-9.]/g, "")) || 0;
-    setSavingPhones(true);
-    try {
-      await saveOpeningBalances(
-        reportDate,
-        {
-          cleanerPhone,
-          productsPhone,
-          cash: data?.opening?.openingCash || 0,
-        },
-        undefined,
-        undefined
-      );
-      await load(reportDate);
-      toast({ title: "Phone money saved" });
-    } catch (error: any) {
-      toast({
-        title: "Could not save the phone money",
-        description: error?.message || "Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setSavingPhones(false);
-    }
-  };
-
   const cell = "border border-black px-2 py-1";
 
   return (
@@ -643,37 +590,6 @@ export function DailyCashReport() {
             </Button>
           </div>
         </div>
-      </div>
-
-      <div className="no-print mx-auto mb-4 flex max-w-3xl flex-wrap items-end gap-3 rounded-md border px-4 py-3">
-        <div>
-          <Label htmlFor="phones-cleaner" className="text-xs">
-            Money on Dry Cleaner phone
-          </Label>
-          <CurrencyInput
-            id="phones-cleaner"
-            className="w-36"
-            value={phonesCleaner}
-            onChange={setPhonesCleaner}
-          />
-        </div>
-        <div>
-          <Label htmlFor="phones-products" className="text-xs">
-            Money on Products phone
-          </Label>
-          <CurrencyInput
-            id="phones-products"
-            className="w-36"
-            value={phonesProducts}
-            onChange={setPhonesProducts}
-          />
-        </div>
-        <Button onClick={submitPhones} disabled={savingPhones} size="sm">
-          {savingPhones ? "Saving..." : "Save phone money"}
-        </Button>
-        <p className="text-xs text-muted-foreground">
-          Today&apos;s MoMo on each phone is added to this.
-        </p>
       </div>
 
       <div className="print-content print-flow mx-auto max-w-3xl px-4 pb-10">
@@ -850,13 +766,18 @@ export function DailyCashReport() {
               <p className="font-bold text-red-600">
                 - Total Debt: {formatCurrency(totalDebt)}
               </p>
+              {/* Written in by hand when the report is signed off. */}
               <p>
                 - Money on Dry Cleaner phone:{" "}
-                {formatCurrency(phoneBalance("cleaner_phone"))}
+                <span className="ml-1 inline-block w-48 border-b border-black align-bottom">
+                  &nbsp;
+                </span>
               </p>
               <p>
                 - Money on Products phone:{" "}
-                {formatCurrency(phoneBalance("products_phone"))}
+                <span className="ml-1 inline-block w-48 border-b border-black align-bottom">
+                  &nbsp;
+                </span>
               </p>
               <p className="mt-2 border-t border-black pt-2 text-base font-bold">
                 GRAND TOTAL RECEIVED: {formatCurrency(grandTotal)}

@@ -18,7 +18,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Check, Minus, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import {
+  Check,
+  Download,
+  Minus,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+  X,
+} from "lucide-react";
+import {
+  ProductSaleReceipt,
+  type ProductSaleReceiptData,
+} from "@/components/product-sale-receipt";
+import { generateProductSalePDF } from "@/lib/product-receipt-pdf";
 import { formatCurrency, getLocalDateString } from "@/lib/utils";
 import { PRODUCT_ITEM_NAMES } from "@/lib/item-catalog";
 import { toast } from "@/hooks/use-toast";
@@ -383,6 +397,29 @@ export function ProductSales() {
     }
   };
 
+  // --- the receipt for one sale -------------------------------------------
+  // Clicking any sale row shows it, and it can be downloaded as a PDF.
+  const [receiptSale, setReceiptSale] = useState<ProductSaleReceiptData | null>(
+    null
+  );
+  const [downloadingReceipt, setDownloadingReceipt] = useState(false);
+
+  const downloadReceipt = async (sale: ProductSaleReceiptData) => {
+    setDownloadingReceipt(true);
+    try {
+      await generateProductSalePDF(sale);
+      toast({ title: "Receipt downloaded" });
+    } catch (error: any) {
+      toast({
+        title: "Could not create the receipt",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadingReceipt(false);
+    }
+  };
+
   // --- collecting what is still owed on an earlier product sale -----------
   const [collectSale, setCollectSale] = useState<UnpaidExtraSale | null>(null);
   const [collectAmount, setCollectAmount] = useState("");
@@ -676,7 +713,7 @@ export function ProductSales() {
             </h2>
             <p className="text-xs text-muted-foreground">
               Pencil changes the row right here · Enter saves · Esc cancels ·
-              trash deletes.
+              trash deletes · click a row for its receipt.
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -817,7 +854,12 @@ export function ProductSales() {
                     sale.totalPrice - (sale.amountPaidCash + sale.amountPaidMomo)
                   );
                   return (
-                    <tr key={sale.id}>
+                    <tr
+                      key={sale.id}
+                      className="cursor-pointer hover:bg-muted/40"
+                      onClick={() => setReceiptSale(sale)}
+                      title="Open the receipt"
+                    >
                       <td className={cell}>{sale.description}</td>
                       <td className={cell}>{sale.clientName || "Walk-in"}</td>
                       <td className={`${cell} text-right`}>{sale.quantity}</td>
@@ -841,7 +883,10 @@ export function ProductSales() {
                         <button
                           type="button"
                           title="Edit this sale"
-                          onClick={() => startEdit(sale)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            startEdit(sale);
+                          }}
                           className="mr-2 text-muted-foreground hover:text-foreground"
                         >
                           <Pencil className="h-4 w-4" />
@@ -849,7 +894,10 @@ export function ProductSales() {
                         <button
                           type="button"
                           title="Delete this sale"
-                          onClick={() => removeSale(sale)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            removeSale(sale);
+                          }}
                           className="text-red-600 hover:text-red-800"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -1039,7 +1087,12 @@ export function ProductSales() {
                     }
 
                     return (
-                      <tr key={sale.id}>
+                      <tr
+                        key={sale.id}
+                        className="cursor-pointer hover:bg-muted/40"
+                        onClick={() => setReceiptSale(sale)}
+                        title="Open the receipt"
+                      >
                         <td className={cell}>{sale.description}</td>
                         <td className={cell}>{sale.clientName || "Walk-in"}</td>
                         <td className={`${cell} text-right`}>
@@ -1074,14 +1127,20 @@ export function ProductSales() {
                             size="sm"
                             variant="outline"
                             className="mr-2 h-7 px-2"
-                            onClick={() => openCollect(sale)}
+                                                              onClick={(event) => {
+                                    event.stopPropagation();
+                                    openCollect(sale);
+                                  }}
                           >
                             Collect
                           </Button>
                           <button
                             type="button"
                             title="Edit this sale"
-                            onClick={() => startEdit(sale)}
+                            onClick={(event) => {
+                            event.stopPropagation();
+                            startEdit(sale);
+                          }}
                             className="mr-2 text-muted-foreground hover:text-foreground"
                           >
                             <Pencil className="h-4 w-4" />
@@ -1089,7 +1148,10 @@ export function ProductSales() {
                           <button
                             type="button"
                             title="Delete this sale"
-                            onClick={() => removeSale(sale)}
+                            onClick={(event) => {
+                            event.stopPropagation();
+                            removeSale(sale);
+                          }}
                             className="text-red-600 hover:text-red-800"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -1110,7 +1172,7 @@ export function ProductSales() {
             <h2 className="font-bold">Past records</h2>
             <p className="text-xs text-muted-foreground">
               Every product sale, newest first · pencil edits in place · trash
-              deletes.
+              deletes · click a row for its receipt.
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -1268,7 +1330,12 @@ export function ProductSales() {
                         collected)
                   );
                   return (
-                    <tr key={sale.id}>
+                    <tr
+                      key={sale.id}
+                      className="cursor-pointer hover:bg-muted/40"
+                      onClick={() => setReceiptSale(sale)}
+                      title="Open the receipt"
+                    >
                       <td className={cell}>{sale.description}</td>
                       <td className={cell}>{sale.clientName || "Walk-in"}</td>
                       <td className={`${cell} text-right`}>
@@ -1299,7 +1366,10 @@ export function ProductSales() {
                         <button
                           type="button"
                           title="Edit this sale"
-                          onClick={() => startEdit(sale)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            startEdit(sale);
+                          }}
                           className="mr-2 text-muted-foreground hover:text-foreground"
                         >
                           <Pencil className="h-4 w-4" />
@@ -1307,7 +1377,10 @@ export function ProductSales() {
                         <button
                           type="button"
                           title="Delete this sale"
-                          onClick={() => removeSale(sale)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            removeSale(sale);
+                          }}
                           className="text-red-600 hover:text-red-800"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -1384,6 +1457,46 @@ export function ProductSales() {
           <DialogFooter>
             <Button onClick={submitCollect} disabled={savingCollect}>
               {savingCollect ? "Saving..." : "Save payment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- receipt for one sale --------------------------------------- */}
+      <Dialog
+        open={Boolean(receiptSale)}
+        onOpenChange={(open) => !open && setReceiptSale(null)}
+      >
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Receipt</DialogTitle>
+            <DialogDescription>
+              {receiptSale
+                ? `${receiptSale.description} × ${receiptSale.quantity} · ${
+                    receiptSale.clientName || "Walk-in customer"
+                  }`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          {receiptSale && (
+            <div className="max-h-[60vh] overflow-auto rounded-md border bg-white p-2">
+              <div style={{ zoom: 0.62 }}>
+                <ProductSaleReceipt sale={receiptSale} />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:justify-between">
+            <p className="text-xs text-muted-foreground">
+              A4 PDF named receipt-{receiptSale?.id.slice(0, 8)} …
+            </p>
+            <Button
+              onClick={() => receiptSale && downloadReceipt(receiptSale)}
+              disabled={downloadingReceipt || !receiptSale}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              {downloadingReceipt ? "Preparing..." : "Download PDF"}
             </Button>
           </DialogFooter>
         </DialogContent>
