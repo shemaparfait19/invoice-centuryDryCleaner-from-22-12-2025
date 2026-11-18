@@ -84,7 +84,11 @@ function soldAtFor(ymd: string): string {
 // Hangers, covers and other extras are "extra"; the shop's products are
 // "product". The daily report splits them the same way.
 function categoryFor(description: string): "product" | "extra" {
-  return /hanger|cover|bag|bouquet/i.test(description) ? "extra" : "product";
+  return /hanger|cover|bag|bouquet|container|jerry ?can|bucket/i.test(
+    description
+  )
+    ? "extra"
+    : "product";
 }
 
 const PAY_LABELS: Record<PayMode, string> = {

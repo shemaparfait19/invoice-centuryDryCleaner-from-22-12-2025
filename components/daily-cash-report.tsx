@@ -31,7 +31,7 @@ type ClothesKey =
   | "coats"
   | "dresses"
   | "other";
-type ProductKey = "hangers" | "covers" | "other_products";
+type ProductKey = "hangers" | "covers" | "containers" | "other_products";
 
 interface Bucket {
   qty: number;
@@ -122,6 +122,7 @@ const CLOTHES_ROWS: { key: string; label: string }[] = [
 const PRODUCT_ROWS: { key: ProductKey; label: string }[] = [
   { key: "hangers", label: "Hangers" },
   { key: "covers", label: "Covers" },
+  { key: "containers", label: "Containers" },
   { key: "other_products", label: "Other Products" },
 ];
 
@@ -226,6 +227,9 @@ function productGroup(name: string): ProductKey {
   const n = name.toLowerCase();
   if (/hanger/.test(n)) return "hangers";
   if (/cover/.test(n)) return "covers";
+  // A container is sold goods, never a garment: it gets its own line so it
+  // never lands in the clothes table or in "Other Clothes".
+  if (/container|jerry ?can|bucket/.test(n)) return "containers";
   return "other_products";
 }
 
@@ -295,6 +299,7 @@ export function DailyCashReport() {
     const emptyProducts = (): Record<string, Bucket> => ({
       hangers: emptyBucket(),
       covers: emptyBucket(),
+      containers: emptyBucket(),
       other_products: emptyBucket(),
     });
 

@@ -140,6 +140,10 @@ export function addDaysYmd(ymd: string, days: number): string {
 // extra_sales, which carries an explicit category.
 const PRODUCT_KEYWORDS = [
   "detergent",
+  "container",
+  "jerrycan",
+  "jerry can",
+  "bucket",
   "hanger",
   "hand wash",
   "handwash",

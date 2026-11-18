@@ -62,6 +62,7 @@
     { "name": "Century Hair Shampoo", "category": "product", "aliases": ["shampoo", "hair shampoo"] },
     { "name": "Century Scent", "category": "product", "aliases": ["scent", "perfume", "perfumes", "air freshener"] },
     { "name": "Hanger", "category": "extra", "aliases": ["hangers"] },
+    { "name": "Container", "category": "extra", "aliases": ["containers", "jerrycan", "jerry can", "jerrycans", "bucket", "buckets"] },
     { "name": "Cover", "category": "extra", "aliases": ["covers", "garment cover", "plastic cover"] },
     { "name": "Plastic bag", "category": "extra", "aliases": ["plastic bags", "carrier bag"] }
   ]
