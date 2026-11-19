@@ -28,6 +28,7 @@ import {
 import { Plus, Trash2 } from "lucide-react";
 import { SERVICES } from "@/lib/services";
 import { searchItemCatalog } from "@/lib/item-catalog";
+import { loadItemCatalog } from "@/lib/item-catalog-db";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency, formatTime, generateInvoiceId, getLocalDateString, normalizePhoneForMatch } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -157,6 +158,11 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
     control: form.control,
     name: "items",
   });
+
+  // Item suggestions come from the shop's own list (/items).
+  useEffect(() => {
+    loadItemCatalog();
+  }, []);
 
   useEffect(() => {
     if (editingInvoice) {

@@ -22,6 +22,7 @@ import {
   Banknote,
   CalendarClock,
   MoreHorizontal,
+  Tag,
 } from "lucide-react";
 import { InvoiceForm } from "@/components/invoice-form";
 import { InvoiceList } from "@/components/invoice-list";
@@ -571,6 +572,11 @@ export default function HomePage() {
                   <DropdownMenuItem asChild>
                     <Link href="/daily-report" className="flex items-center w-full">
                       <FileText className="h-4 w-4 mr-2" /> Daily Cash Report
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/items" className="flex items-center w-full">
+                      <Tag className="h-4 w-4 mr-2" /> Items &amp; categories
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setCurrentView("setup")}>

@@ -25,16 +25,19 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Tag,
   Trash2,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import {
   ProductSaleReceipt,
   type ProductSaleReceiptData,
 } from "@/components/product-sale-receipt";
 import { generateProductSalePDF } from "@/lib/product-receipt-pdf";
 import { formatCurrency, getLocalDateString } from "@/lib/utils";
-import { PRODUCT_ITEM_NAMES } from "@/lib/item-catalog";
+import { PRODUCT_ITEM_NAMES, lookupItemCategory } from "@/lib/item-catalog";
+import { loadItemCatalog } from "@/lib/item-catalog-db";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
 import {
@@ -84,6 +87,9 @@ function soldAtFor(ymd: string): string {
 // Hangers, covers and other extras are "extra"; the shop's products are
 // "product". The daily report splits them the same way.
 function categoryFor(description: string): "product" | "extra" {
+  // The item list is the source of truth for what a thing is.
+  const known = lookupItemCategory(description);
+  if (known) return known === "dry_cleaning" ? "product" : known;
   return /hanger|cover|bag|bouquet|container|jerry ?can|bucket/i.test(
     description
   )
@@ -172,6 +178,13 @@ export function ProductSales() {
   const load = useCallback(async (ymd: string) => {
     setLoading(true);
     try {
+      // Fresh item names before the dropdown is drawn.
+      await loadItemCatalog();
+      setDescription((previous) =>
+        PRODUCT_ITEM_NAMES.includes(previous)
+          ? previous
+          : PRODUCT_ITEM_NAMES[0] || ""
+      );
       const salesForDay = await fetchExtraSalesForDay(ymd);
       setSales(salesForDay);
       setLoadedDate(ymd);
@@ -487,6 +500,11 @@ export function ProductSales() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link href="/items">
+            <Button variant="ghost" size="sm">
+              <Tag className="mr-2 h-4 w-4" /> Item list
+            </Button>
+          </Link>
           <Input
             type="date"
             value={selectedDate}

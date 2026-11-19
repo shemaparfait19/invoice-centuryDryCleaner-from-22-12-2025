@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Printer, RefreshCw } from "lucide-react";
 import { formatCurrency, getLocalDateString } from "@/lib/utils";
 import { lookupItemName } from "@/lib/item-catalog";
+import { loadItemCatalog } from "@/lib/item-catalog-db";
 import { toast } from "@/hooks/use-toast";
 import { fetchDailyCashReport, parseLocalYmd } from "@/lib/daily-cash-report";
 import {
@@ -254,6 +255,9 @@ export function DailyCashReport() {
   const load = useCallback(async (ymd: string) => {
     setLoading(true);
     try {
+      // The item list decides which names count as clothes and which as
+      // products, so it is loaded before the report is built.
+      await loadItemCatalog();
       const result = await fetchDailyCashReport(ymd);
       setData(result);
       setLoadedDate(ymd);

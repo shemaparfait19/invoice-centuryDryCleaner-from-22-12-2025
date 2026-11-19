@@ -1,8 +1,15 @@
-// The shop's item list, in one editable JSON file (lib/item-catalog.json).
+// The shop's item list.
 //
-// Staff pick from these names while typing an invoice item or a product/extra
-// sale, so names stay consistent and the daily report can count "Pants 12 ·
-// Jeans 4 · Bed cover 3" instead of a dozen spellings of the same garment.
+// The list lives in the database (public.item_catalog) and is edited from
+// /items, so staff can add anything the shop handles and say whether it is
+// laundry, a product, or an extra. lib/item-catalog.json is the built-in
+// starting list used until the table has rows (and as a fallback if the
+// migration has not been run yet).
+//
+// Everything here is synchronous and reads the in-memory registry, so the daily
+// report and the invoice form can keep using plain functions; call
+// loadItemCatalog() (lib/item-catalog-db.ts) once on a page before relying on
+// the DB contents.
 
 import catalog from "./item-catalog.json";
 
@@ -14,9 +21,44 @@ export interface CatalogItem {
   aliases?: string[];
 }
 
-const ITEMS = (catalog as { items: CatalogItem[] }).items;
+export const ITEM_CATEGORIES: {
+  key: ItemCategory;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    key: "dry_cleaning",
+    label: "Dry cleaning",
+    hint: "Clothes and laundry — counted in the clothes table on the daily report.",
+  },
+  {
+    key: "product",
+    label: "Product",
+    hint: "The shop's own detergents — printed under Products on the report.",
+  },
+  {
+    key: "extra",
+    label: "Extra",
+    hint: "Hangers, covers, bags, containers — printed under Products too.",
+  },
+];
 
-export const ITEM_CATALOG: CatalogItem[] = ITEMS;
+export const CATEGORY_LABELS: Record<ItemCategory, string> = {
+  dry_cleaning: "Dry cleaning",
+  product: "Product",
+  extra: "Extra",
+};
+
+const BUILT_IN_ITEMS: CatalogItem[] = (catalog as { items: CatalogItem[] })
+  .items;
+
+function normalizeCategory(value: unknown): ItemCategory {
+  return value === "product" || value === "extra" ? value : "dry_cleaning";
+}
+
+// The list in use right now: the database rows once loaded, otherwise the
+// built-in JSON list.
+let liveItems: CatalogItem[] = BUILT_IN_ITEMS;
 
 function normalize(value: string): string {
   return value
@@ -25,26 +67,85 @@ function normalize(value: string): string {
     .trim();
 }
 
-const CANONICAL = new Map<string, string>();
-for (const item of ITEMS) {
-  CANONICAL.set(normalize(item.name), item.name);
-  for (const alias of item.aliases || []) {
-    if (!CANONICAL.has(normalize(alias))) CANONICAL.set(normalize(alias), item.name);
+let canonical = new Map<string, string>();
+let categories = new Map<string, ItemCategory>();
+
+// Products first, then extras: that is the order the /products dropdown shows.
+export const PRODUCT_ITEM_NAMES: string[] = [];
+export const ALL_ITEM_NAMES: string[] = [];
+
+function rebuild() {
+  canonical = new Map();
+  categories = new Map();
+  PRODUCT_ITEM_NAMES.length = 0;
+  ALL_ITEM_NAMES.length = 0;
+
+  for (const item of liveItems) {
+    const name = (item.name || "").trim();
+    if (!name) continue;
+    const category = normalizeCategory(item.category);
+    canonical.set(normalize(name), name);
+    categories.set(normalize(name), category);
+    for (const alias of item.aliases || []) {
+      const key = normalize(alias);
+      if (!key) continue;
+      if (!canonical.has(key)) canonical.set(key, name);
+      if (!categories.has(key)) categories.set(key, category);
+    }
+    ALL_ITEM_NAMES.push(name);
   }
+
+  for (const item of liveItems) {
+    if (normalizeCategory(item.category) === "product" && item.name.trim()) {
+      PRODUCT_ITEM_NAMES.push(item.name.trim());
+    }
+  }
+  for (const item of liveItems) {
+    if (normalizeCategory(item.category) === "extra" && item.name.trim()) {
+      PRODUCT_ITEM_NAMES.push(item.name.trim());
+    }
+  }
+}
+
+rebuild();
+
+// Called by the loader after the database rows arrive. Pass null/[] to fall
+// back to the built-in list.
+export function setCatalogItems(items: CatalogItem[] | null): void {
+  liveItems = items && items.length > 0 ? items : BUILT_IN_ITEMS;
+  rebuild();
+}
+
+export function getCatalogItems(): CatalogItem[] {
+  return liveItems;
+}
+
+export function getBuiltInCatalogItems(): CatalogItem[] {
+  return BUILT_IN_ITEMS;
+}
+
+export function isUsingBuiltInCatalog(): boolean {
+  return liveItems === BUILT_IN_ITEMS;
 }
 
 // "trouser" → "Pants", "bed cover" → "Bed cover". Anything not in the list is
 // kept exactly as typed, so a one-off item is never lost.
 export function canonicalItemName(label: string): string {
   const key = normalize(label);
-  return CANONICAL.get(key) || label.trim();
+  return canonical.get(key) || label.trim();
 }
 
 // The catalog's own name for a label, or null when it is not in the list. The
 // daily report uses this to give every known item its own printed row instead
 // of sweeping it into "Other Clothes".
 export function lookupItemName(label: string): string | null {
-  return CANONICAL.get(normalize(label)) || null;
+  return canonical.get(normalize(label)) || null;
+}
+
+// What the shop says this thing is. null means the list has never heard of it,
+// so the report falls back to its keyword guesses.
+export function lookupItemCategory(label: string): ItemCategory | null {
+  return categories.get(normalize(label)) || null;
 }
 
 // Suggestions for the typing dropdown: names starting with the query first,
@@ -54,7 +155,7 @@ export function searchItemCatalog(query: string, limit = 8): string[] {
   if (!q) return [];
   const starts: string[] = [];
   const contains: string[] = [];
-  for (const item of ITEMS) {
+  for (const item of liveItems) {
     const name = normalize(item.name);
     if (name.startsWith(q)) starts.push(item.name);
     else if (
@@ -136,7 +237,7 @@ export function parseItemLine(text: string): ParsedItemLine[] | null {
     const only = parsed[0];
     if (!only) return null;
     // "Shirt x4" with a known garment: keep the clean name and its count.
-    return CANONICAL.has(normalize(only.name)) ? [only] : null;
+    return canonical.has(normalize(only.name)) ? [only] : null;
   }
 
   // Only split a list we can trust: every piece names an item, and either the
@@ -148,18 +249,9 @@ export function parseItemLine(text: string): ParsedItemLine[] | null {
       : { name: segment.replace(/[.!]+$/, "").trim(), quantity: 1 }
   );
   const everyKnown = cleaned.every((piece) =>
-    CANONICAL.has(normalize(piece.name))
+    canonical.has(normalize(piece.name))
   );
   if (!anyQuantity && !everyKnown) return null;
   if (cleaned.length < 2) return null;
   return cleaned;
 }
-
-// Products and extras (the shop's own detergents, hanger, cover, bouquet...)
-// used by the products route. Products come first, then extras.
-export const PRODUCT_ITEM_NAMES = [
-  ...ITEMS.filter((item) => item.category === "product").map((item) => item.name),
-  ...ITEMS.filter((item) => item.category === "extra").map((item) => item.name),
-];
-
-export const ALL_ITEM_NAMES = ITEMS.map((item) => item.name);

@@ -4,7 +4,11 @@
 // export.
 
 import { formatCurrency } from "./utils";
-import { canonicalItemName, parseItemLine } from "./item-catalog";
+import {
+  canonicalItemName,
+  lookupItemCategory,
+  parseItemLine,
+} from "./item-catalog";
 import type { MoneyAccount, PaymentStatus } from "./types";
 
 export interface ReportSaleItem {
@@ -166,6 +170,13 @@ export function round2(value: number): number {
 export function isProductLine(description: string): boolean {
   const text = description.toLowerCase();
   if (SERVICE_WORDS.some((word) => text.includes(word))) return false;
+  // The shop's own item list decides first: whatever category staff gave an
+  // item is where it is counted. Only a name the list does not know falls back
+  // to the keyword guesses below.
+  const known =
+    lookupItemCategory(shortItemName(description)) ??
+    lookupItemCategory(description);
+  if (known) return known !== "dry_cleaning";
   return PRODUCT_KEYWORDS.some((word) => text.includes(word));
 }
 
