@@ -47,6 +47,8 @@ import {
   Tags,
   User,
   RefreshCw,
+  Copy,
+  Check,
 } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
@@ -79,6 +81,7 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
   const [sectionInvoice, setSectionInvoice] = useState<Invoice | null>(null);
   const [sectionSelected, setSectionSelected] = useState<string>("");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [copiedPhone, setCopiedPhone] = useState<string | null>(null);
 
   // IntersectionObserver for infinite scroll
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -213,6 +216,33 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
     } finally {
       setIsRefreshing(false);
     }
+  };
+
+  const handleCopyPhone = async (
+    phone: string,
+    event: React.MouseEvent
+  ) => {
+    event.stopPropagation();
+    if (!phone) return;
+
+    try {
+      await navigator.clipboard.writeText(phone);
+    } catch {
+      // Fallback for browsers/contexts without the Clipboard API.
+      const textarea = document.createElement("textarea");
+      textarea.value = phone;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+
+    setCopiedPhone(phone);
+    window.setTimeout(() => {
+      setCopiedPhone((current) => (current === phone ? null : current));
+    }, 1500);
   };
 
   const handleDelete = async (invoiceId: string) => {
@@ -419,9 +449,26 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                       {invoice.id}
                     </p>
                     <p className="font-medium">{invoice.client.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {invoice.client.phone}
-                    </p>
+                    <div className="flex items-center gap-1">
+                      <p className="text-sm text-muted-foreground">
+                        {invoice.client.phone}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={(event) =>
+                          handleCopyPhone(invoice.client.phone, event)
+                        }
+                        title="Copy phone number"
+                        aria-label="Copy phone number"
+                        className="text-muted-foreground hover:text-foreground p-0.5"
+                      >
+                        {copiedPhone === invoice.client.phone ? (
+                          <Check className="h-3.5 w-3.5 text-green-600" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    </div>
                   </div>
                   <div className="text-right">
                     <p className="font-semibold">
@@ -630,9 +677,26 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                           <td className="p-4">
                             <div>
                               <p className="font-medium">{invoice.client.name}</p>
-                              <p className="text-sm text-muted-foreground">
-                                {invoice.client.phone}
-                              </p>
+                              <div className="flex items-center gap-1">
+                                <p className="text-sm text-muted-foreground">
+                                  {invoice.client.phone}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={(event) =>
+                                    handleCopyPhone(invoice.client.phone, event)
+                                  }
+                                  title="Copy phone number"
+                                  aria-label="Copy phone number"
+                                  className="text-muted-foreground hover:text-foreground p-0.5"
+                                >
+                                  {copiedPhone === invoice.client.phone ? (
+                                    <Check className="h-3.5 w-3.5 text-green-600" />
+                                  ) : (
+                                    <Copy className="h-3.5 w-3.5" />
+                                  )}
+                                </button>
+                              </div>
                             </div>
                           </td>
                           <td className="p-4 whitespace-nowrap">
