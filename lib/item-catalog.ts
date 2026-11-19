@@ -86,6 +86,9 @@ function normalize(value: string): string {
 
 let canonical = new Map<string, string>();
 let categories = new Map<string, ItemCategory>();
+// Every name and alias, longest first. Used when a line says more than the
+// item name alone, e.g. "NIL containers" still belongs to Container.
+let phrases: { phrase: string; name: string; category: ItemCategory }[] = [];
 
 // Products first, then extras: that is the order the /products dropdown shows.
 export const PRODUCT_ITEM_NAMES: string[] = [];
@@ -94,6 +97,7 @@ export const ALL_ITEM_NAMES: string[] = [];
 function rebuild() {
   canonical = new Map();
   categories = new Map();
+  phrases = [];
   PRODUCT_ITEM_NAMES.length = 0;
   ALL_ITEM_NAMES.length = 0;
 
@@ -103,14 +107,19 @@ function rebuild() {
     const category = normalizeCategory(item.category);
     canonical.set(normalize(name), name);
     categories.set(normalize(name), category);
+    phrases.push({ phrase: normalize(name), name, category });
     for (const alias of item.aliases || []) {
       const key = normalize(alias);
       if (!key) continue;
       if (!canonical.has(key)) canonical.set(key, name);
       if (!categories.has(key)) categories.set(key, category);
+      phrases.push({ phrase: key, name, category });
     }
     ALL_ITEM_NAMES.push(name);
   }
+
+  // Longest phrase wins, so "bed cover" beats "cover" inside a longer line.
+  phrases.sort((a, b) => b.phrase.length - a.phrase.length);
 
   for (const item of liveItems) {
     if (categoryKind(item.category) === "product" && item.name.trim()) {
@@ -179,24 +188,44 @@ export function isUsingBuiltInCatalog(): boolean {
   return liveItems === BUILT_IN_ITEMS;
 }
 
+// The catalog item named somewhere inside a longer line: "NIL containers" →
+// Container, "blue bed cover" → Bed cover. Only whole words count. A clothes
+// match is preferred when the line also names a product, so "shirt and hanger"
+// stays a clothes line.
+function matchPhrase(
+  label: string
+): { name: string; category: ItemCategory } | null {
+  const key = normalize(label);
+  if (!key) return null;
+  const padded = ` ${key} `;
+  let fallback: { name: string; category: ItemCategory } | null = null;
+  for (const entry of phrases) {
+    if (!entry.phrase || !padded.includes(` ${entry.phrase} `)) continue;
+    const found = { name: entry.name, category: entry.category };
+    if (categoryKind(entry.category) === "dry_cleaning") return found;
+    if (!fallback) fallback = found;
+  }
+  return fallback;
+}
+
 // "trouser" → "Pants", "bed cover" → "Bed cover". Anything not in the list is
 // kept exactly as typed, so a one-off item is never lost.
 export function canonicalItemName(label: string): string {
   const key = normalize(label);
-  return canonical.get(key) || label.trim();
+  return canonical.get(key) || matchPhrase(label)?.name || label.trim();
 }
 
 // The catalog's own name for a label, or null when it is not in the list. The
 // daily report uses this to give every known item its own printed row instead
 // of sweeping it into "Other Clothes".
 export function lookupItemName(label: string): string | null {
-  return canonical.get(normalize(label)) || null;
+  return canonical.get(normalize(label)) || matchPhrase(label)?.name || null;
 }
 
 // What the shop says this thing is. null means the list has never heard of it,
 // so the report falls back to its keyword guesses.
 export function lookupItemCategory(label: string): ItemCategory | null {
-  return categories.get(normalize(label)) || null;
+  return categories.get(normalize(label)) || matchPhrase(label)?.category || null;
 }
 
 // Suggestions for the typing dropdown: names starting with the query first,
