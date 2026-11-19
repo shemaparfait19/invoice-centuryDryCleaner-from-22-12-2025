@@ -13,7 +13,12 @@
 
 import catalog from "./item-catalog.json";
 
-export type ItemCategory = "dry_cleaning" | "product" | "extra";
+// A category key: the value stored on each item, e.g. "dry_cleaning".
+export type ItemCategory = string;
+
+// What a category counts as on the daily report. Categories are editable, but
+// they always behave like one of these three.
+export type CategoryKind = "dry_cleaning" | "product" | "extra";
 
 export interface CatalogItem {
   name: string;
@@ -21,44 +26,56 @@ export interface CatalogItem {
   aliases?: string[];
 }
 
-export const ITEM_CATEGORIES: {
-  key: ItemCategory;
+export interface CatalogCategory {
+  key: string;
+  label: string;
+  countsAs: CategoryKind;
+}
+
+export const CATEGORY_KINDS: {
+  key: CategoryKind;
   label: string;
   hint: string;
 }[] = [
   {
     key: "dry_cleaning",
-    label: "Dry cleaning",
-    hint: "Clothes and laundry — counted in the clothes table on the daily report.",
+    label: "Dry cleaning (clothes)",
+    hint: "Counted in the clothes table on the daily report.",
   },
   {
     key: "product",
-    label: "Product",
-    hint: "The shop's own detergents — printed under Products on the report.",
+    label: "Product sold",
+    hint: "Printed under Products on the daily report.",
   },
   {
     key: "extra",
-    label: "Extra",
-    hint: "Hangers, covers, bags, containers — printed under Products too.",
+    label: "Extra (hangers, covers...)",
+    hint: "Printed under Products too, but kept separate from the shop's products.",
   },
 ];
-
-export const CATEGORY_LABELS: Record<ItemCategory, string> = {
-  dry_cleaning: "Dry cleaning",
-  product: "Product",
-  extra: "Extra",
-};
 
 const BUILT_IN_ITEMS: CatalogItem[] = (catalog as { items: CatalogItem[] })
   .items;
 
-function normalizeCategory(value: unknown): ItemCategory {
+export const BUILT_IN_CATEGORIES: CatalogCategory[] = [
+  { key: "dry_cleaning", label: "Dry cleaning", countsAs: "dry_cleaning" },
+  { key: "product", label: "Product", countsAs: "product" },
+  { key: "extra", label: "Extra", countsAs: "extra" },
+];
+
+function normalizeKind(value: unknown): CategoryKind {
   return value === "product" || value === "extra" ? value : "dry_cleaning";
+}
+
+function normalizeCategory(value: unknown): string {
+  const key = String(value || "").trim();
+  return key || "dry_cleaning";
 }
 
 // The list in use right now: the database rows once loaded, otherwise the
 // built-in JSON list.
 let liveItems: CatalogItem[] = BUILT_IN_ITEMS;
+let liveCategories: CatalogCategory[] = BUILT_IN_CATEGORIES;
 
 function normalize(value: string): string {
   return value
@@ -96,12 +113,12 @@ function rebuild() {
   }
 
   for (const item of liveItems) {
-    if (normalizeCategory(item.category) === "product" && item.name.trim()) {
+    if (categoryKind(item.category) === "product" && item.name.trim()) {
       PRODUCT_ITEM_NAMES.push(item.name.trim());
     }
   }
   for (const item of liveItems) {
-    if (normalizeCategory(item.category) === "extra" && item.name.trim()) {
+    if (categoryKind(item.category) === "extra" && item.name.trim()) {
       PRODUCT_ITEM_NAMES.push(item.name.trim());
     }
   }
@@ -114,6 +131,40 @@ rebuild();
 export function setCatalogItems(items: CatalogItem[] | null): void {
   liveItems = items && items.length > 0 ? items : BUILT_IN_ITEMS;
   rebuild();
+}
+
+// Called by the category loader. Pass null/[] to fall back to the built-ins.
+export function setCatalogCategories(
+  categories: CatalogCategory[] | null
+): void {
+  liveCategories =
+    categories && categories.length > 0 ? categories : BUILT_IN_CATEGORIES;
+  rebuild();
+}
+
+export function getCatalogCategories(): CatalogCategory[] {
+  return liveCategories;
+}
+
+export function getBuiltInCategories(): CatalogCategory[] {
+  return BUILT_IN_CATEGORIES;
+}
+
+export function isUsingBuiltInCategories(): boolean {
+  return liveCategories === BUILT_IN_CATEGORIES;
+}
+
+// The label to print for a stored category key. Unknown keys are shown as-is,
+// so an item never disappears because its category was renamed.
+export function categoryLabel(key: string): string {
+  return liveCategories.find((category) => category.key === key)?.label || key;
+}
+
+// How a category counts on the report. Legacy keys map to themselves; a key we
+// have never seen is treated as clothes so no money goes missing.
+export function categoryKind(key: string): CategoryKind {
+  const known = liveCategories.find((category) => category.key === key);
+  return known ? known.countsAs : normalizeKind(key);
 }
 
 export function getCatalogItems(): CatalogItem[] {

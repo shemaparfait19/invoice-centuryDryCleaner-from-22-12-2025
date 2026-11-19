@@ -7,7 +7,8 @@
 --
 -- If this table is empty, the app falls back to the built-in list in
 -- lib/item-catalog.json, and /items offers a one-click button to copy that list
--- in here. Run this script once.
+-- in here. Run this script once, then run scripts/add-item-categories.sql so
+-- the categories can be edited too.
 
 CREATE TABLE IF NOT EXISTS public.item_catalog (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

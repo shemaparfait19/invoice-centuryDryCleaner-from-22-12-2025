@@ -36,7 +36,11 @@ import {
 } from "@/components/product-sale-receipt";
 import { generateProductSalePDF } from "@/lib/product-receipt-pdf";
 import { formatCurrency, getLocalDateString } from "@/lib/utils";
-import { PRODUCT_ITEM_NAMES, lookupItemCategory } from "@/lib/item-catalog";
+import {
+  PRODUCT_ITEM_NAMES,
+  categoryKind,
+  lookupItemCategory,
+} from "@/lib/item-catalog";
 import { loadItemCatalog } from "@/lib/item-catalog-db";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
@@ -89,7 +93,10 @@ function soldAtFor(ymd: string): string {
 function categoryFor(description: string): "product" | "extra" {
   // The item list is the source of truth for what a thing is.
   const known = lookupItemCategory(description);
-  if (known) return known === "dry_cleaning" ? "product" : known;
+  if (known) {
+    const kind = categoryKind(known);
+    return kind === "dry_cleaning" ? "product" : kind;
+  }
   return /hanger|cover|bag|bouquet|container|jerry ?can|bucket/i.test(
     description
   )

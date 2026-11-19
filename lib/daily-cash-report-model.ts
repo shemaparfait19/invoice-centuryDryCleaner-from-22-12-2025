@@ -6,6 +6,7 @@
 import { formatCurrency } from "./utils";
 import {
   canonicalItemName,
+  categoryKind,
   lookupItemCategory,
   parseItemLine,
 } from "./item-catalog";
@@ -176,7 +177,7 @@ export function isProductLine(description: string): boolean {
   const known =
     lookupItemCategory(shortItemName(description)) ??
     lookupItemCategory(description);
-  if (known) return known !== "dry_cleaning";
+  if (known) return categoryKind(known) !== "dry_cleaning";
   return PRODUCT_KEYWORDS.some((word) => text.includes(word));
 }
 
