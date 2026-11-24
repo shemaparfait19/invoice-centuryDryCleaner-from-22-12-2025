@@ -49,12 +49,15 @@ import {
   RefreshCw,
   Copy,
   Check,
+  Camera,
 } from "lucide-react";
 import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 import { useModalDismiss } from "@/hooks/use-modal-dismiss";
 import { generatePDF, sharePDF, shareViaWhatsApp } from "@/lib/pdf-utils";
 import { InvoicePrint } from "@/components/invoice-print";
+import { InvoicePhotosWithItems } from "@/components/invoice-photos";
+import { InvoiceMobilePreview } from "@/components/invoice-mobile-preview";
 import { toast } from "@/hooks/use-toast";
 import type { Invoice } from "@/lib/types";
 import { InvoiceStatusManager } from "@/components/invoice-status-manager";
@@ -77,6 +80,7 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
     setViewInvoice(null)
   );
   const [notesInvoice, setNotesInvoice] = useState<Invoice | null>(null);
+  const [photosInvoice, setPhotosInvoice] = useState<Invoice | null>(null);
   const [notesText, setNotesText] = useState("");
   const [sectionInvoice, setSectionInvoice] = useState<Invoice | null>(null);
   const [sectionSelected, setSectionSelected] = useState<string>("");
@@ -592,6 +596,15 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={() => setPhotosInvoice(invoice)}
+                    className="flex-1 sm:flex-none"
+                  >
+                    <Camera className="h-4 w-4 mr-2" />
+                    Photos
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => handleDownloadPDF(invoice)}
                     className="flex-1 sm:flex-none"
                   >
@@ -662,6 +675,7 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                   <th className="text-left p-4">Payment</th>
                   <th className="text-left p-4">Section</th>
                   <th className="text-left p-4">Notes</th>
+                  <th className="text-left p-4">Photos</th>
                 </tr>
               </thead>
               <tbody>
@@ -747,6 +761,21 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                               </div>
                             )}
                           </td>
+                          <td className="p-4">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setPhotosInvoice(invoice);
+                              }}
+                              title="Add or view photos"
+                              className="whitespace-nowrap"
+                            >
+                              <Camera className="h-4 w-4 mr-1.5" />
+                              Photos
+                            </Button>
+                          </td>
                         </tr>
                       </ContextMenuTrigger>
                       <ContextMenuContent className="w-48">
@@ -774,6 +803,10 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                           <StickyNote className="h-4 w-4 mr-2" />
                           Edit Notes
                         </ContextMenuItem>
+                        <ContextMenuItem onClick={(e) => { e.stopPropagation(); setPhotosInvoice(invoice); }}>
+                          <Camera className="h-4 w-4 mr-2" />
+                          Photos
+                        </ContextMenuItem>
                         <ContextMenuItem 
                           onClick={(e) => { e.stopPropagation(); setDeleteInvoiceId(invoice.id); }}
                           className="text-red-600"
@@ -787,7 +820,7 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                       key={`${invoice.id}-status`}
                       className="border-b bg-gray-50/50"
                     >
-                      <td colSpan={9} className="p-2">
+                      <td colSpan={10} className="p-2">
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                           <InvoiceStatusManager
                             invoice={invoice}
@@ -812,7 +845,7 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                     {/* Invoice Items Row */}
                     {invoice.items && invoice.items.length > 0 && (
                       <tr key={`${invoice.id}-items`} className="border-b bg-gray-25">
-                        <td colSpan={9} className="p-3 bg-gray-50">
+                        <td colSpan={10} className="p-3 bg-gray-50">
                           <div className="space-y-2">
                             <p className="text-sm font-medium text-gray-700 mb-2">Invoice Items:</p>
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -937,8 +970,49 @@ export function InvoiceList({ onEdit }: InvoiceListProps) {
                 ×
               </Button>
             </div>
+            <div className="p-4 space-y-4">
+              <div className="hidden sm:block">
+                <InvoicePrint invoice={viewInvoice} />
+              </div>
+              <InvoiceMobilePreview invoice={viewInvoice} />
+              <div className="border-t pt-4">
+                <InvoicePhotosWithItems
+                  invoiceId={viewInvoice.id}
+                  items={viewInvoice.items}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Photos Dialog — photo capture for a saved invoice, reachable from
+          the invoice card on a phone without opening the full preview. */}
+      {photosInvoice && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onMouseDown={() => setPhotosInvoice(null)}
+        >
+          <div
+            className="bg-white rounded-lg max-w-lg w-full max-h-[90vh] overflow-y-auto"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="p-4 border-b flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold">Clothes Photos</h2>
+                <p className="text-sm text-muted-foreground truncate">
+                  #{photosInvoice.id} · {photosInvoice.client.name}
+                </p>
+              </div>
+              <Button variant="ghost" onClick={() => setPhotosInvoice(null)}>
+                ×
+              </Button>
+            </div>
             <div className="p-4">
-              <InvoicePrint invoice={viewInvoice} />
+              <InvoicePhotosWithItems
+                invoiceId={photosInvoice.id}
+                items={photosInvoice.items}
+              />
             </div>
           </div>
         </div>

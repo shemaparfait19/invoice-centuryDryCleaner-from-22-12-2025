@@ -22,6 +22,21 @@ export interface InvoiceItem {
   totalPrice: number;
 }
 
+// An optional photo of the clothes on an invoice — either of the whole
+// order (itemLabel undefined) or of one invoice line (itemLabel = that
+// line's description). Files live in the `invoice-photos` storage bucket;
+// this row is just the reference.
+export interface InvoicePhoto {
+  id: string;
+  invoiceId: string;
+  itemLabel?: string;
+  storagePath: string;
+  bytes: number;
+  width?: number;
+  height?: number;
+  createdAt: string;
+}
+
 // Where money physically landed. `cleaner_phone` and `products_phone` are the
 // two Mobile Money numbers; `cash` is the cash box. See lib/daily-cash-report.ts
 // for the default rule used when a payment has no stored account.

@@ -234,6 +234,38 @@ export interface Database {
           created_at?: string;
         };
       };
+      invoice_photos: {
+        Row: {
+          id: string;
+          invoice_id: string;
+          item_label: string | null;
+          storage_path: string;
+          bytes: number;
+          width: number | null;
+          height: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          invoice_id: string;
+          item_label?: string | null;
+          storage_path: string;
+          bytes?: number;
+          width?: number | null;
+          height?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          invoice_id?: string;
+          item_label?: string | null;
+          storage_path?: string;
+          bytes?: number;
+          width?: number | null;
+          height?: number | null;
+          created_at?: string;
+        };
+      };
       daily_balances: {
         Row: {
           id: string;

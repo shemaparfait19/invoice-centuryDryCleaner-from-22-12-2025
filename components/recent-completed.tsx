@@ -16,6 +16,7 @@ import { useSupabaseStore } from "@/lib/supabase-store";
 import { formatCurrency } from "@/lib/utils";
 import { generatePDF, sharePDF, shareViaWhatsApp } from "@/lib/pdf-utils";
 import { InvoicePrint } from "@/components/invoice-print";
+import { InvoiceMobilePreview } from "@/components/invoice-mobile-preview";
 import { InvoiceStatusManager } from "@/components/invoice-status-manager";
 import { PaymentStatusBadge, RecordPaymentButton, PaymentMethodLabel } from "@/components/payment-status";
 import { toast } from "@/hooks/use-toast";
@@ -429,7 +430,10 @@ export function RecentCompleted({ type }: RecentCompletedProps) {
               <Button variant="ghost" onClick={() => setViewInvoice(null)}>×</Button>
             </div>
             <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <InvoicePrint invoice={viewInvoice} />
+              <div className="hidden sm:block">
+                <InvoicePrint invoice={viewInvoice} />
+              </div>
+              <InvoiceMobilePreview invoice={viewInvoice} />
               <InvoiceStatusManager invoice={viewInvoice} showDetails={true} />
             </div>
           </div>

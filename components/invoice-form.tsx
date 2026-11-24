@@ -35,6 +35,13 @@ import { toast } from "@/hooks/use-toast";
 import type { Client, Invoice, InvoiceItem } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { PaymentStatusBadge, RecordPaymentButton, PaymentHistoryRow } from "@/components/payment-status";
+import {
+  InvoicePhotos,
+  PendingPhotoGrid,
+  PhotoPickerButtons,
+  usePendingPhotos,
+} from "@/components/invoice-photos";
+import { MAX_PHOTOS_PER_GROUP, uploadInvoicePhoto } from "@/lib/invoice-photos";
 
 const phoneSchema = z
   .string()
@@ -130,6 +137,10 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
     setDropoffConfirmed(true);
     setDropoffOpen(false);
   };
+  // Photos picked before the invoice exists — compressed in the browser and
+  // uploaded right after Create, so staff can snap clothes at drop-off.
+  const pendingPhotos = usePendingPhotos();
+
   const { invoices, clients, addInvoice, updateInvoice, addClient, loading } =
     useSupabaseStore();
 
@@ -190,6 +201,13 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
       );
     }
   }, [editingInvoice, form]);
+
+  // Removing an item row also drops its pending photos and shifts the
+  // remaining rows' photo targets so they still point at the right line.
+  const removeItemRow = (index: number) => {
+    pendingPhotos.removeForItem(index);
+    remove(index);
+  };
 
   const clientNameValue = form.watch("clientName") || "";
 
@@ -415,6 +433,33 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
           initialPayments,
         } as any);
         toast({ title: "Invoice created successfully!" });
+
+        // The invoice now exists, so the photos chosen above can be stored.
+        // A failed photo never blocks the invoice itself.
+        if (pendingPhotos.photos.length > 0) {
+          let failed = 0;
+          for (const photo of pendingPhotos.photos) {
+            const label =
+              photo.itemIndex === null
+                ? null
+                : data.items[photo.itemIndex]?.description?.trim() || null;
+            try {
+              await uploadInvoicePhoto(invoiceData.id, photo.blob, label);
+            } catch (photoError) {
+              console.error("Failed to upload invoice photo:", photoError);
+              failed++;
+            }
+          }
+          pendingPhotos.clear();
+          if (failed > 0) {
+            toast({
+              title: `${failed} photo${failed === 1 ? "" : "s"} could not be saved`,
+              description:
+                "The invoice was saved. Run scripts/add-invoice-photos.sql in Supabase if photos keep failing.",
+              variant: "destructive",
+            });
+          }
+        }
       }
 
       console.log("Invoice operation completed, calling onSave...");
@@ -649,6 +694,40 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
                       })()}
                   </div>
                 </div>
+                {!editingId ? (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        Photo (optional)
+                      </span>
+                      <PhotoPickerButtons
+                        compact
+                        busy={pendingPhotos.busy}
+                        disabled={
+                          pendingPhotos.photos.filter(
+                            (p) => p.itemIndex === index
+                          ).length >= MAX_PHOTOS_PER_GROUP
+                        }
+                        onFiles={(files) => pendingPhotos.add(files, index)}
+                      />
+                    </div>
+                    <PendingPhotoGrid
+                      photos={pendingPhotos.photos.filter(
+                        (p) => p.itemIndex === index
+                      )}
+                      onRemove={pendingPhotos.remove}
+                    />
+                  </div>
+                ) : form.watch(`items.${index}.description`)?.trim() ? (
+                  <InvoicePhotos
+                    invoiceId={editingId}
+                    itemLabel={form
+                      .watch(`items.${index}.description`)
+                      .trim()}
+                    title="Photo"
+                    compact
+                  />
+                ) : null}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>Quantity</Label>
@@ -677,7 +756,7 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
                     type="button"
                     variant="destructive"
                     size="sm"
-                    onClick={() => remove(index)}
+                    onClick={() => removeItemRow(index)}
                     disabled={fields.length === 1}
                     className="w-full sm:w-auto"
                   >
@@ -693,6 +772,44 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
                 Total: {formatCurrency(calculateTotal())}
               </p>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Photos (Optional)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {editingId ? (
+              <InvoicePhotos
+                invoiceId={editingId}
+                itemLabel={null}
+                title="All clothes together"
+                description="Photos of the whole order. Useful for shoes or items that are hard to name."
+              />
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Take one picture of all the clothes together — handy for
+                  shoes or anything that can't be named. Photos are compressed
+                  automatically to keep storage small.
+                </p>
+                <PhotoPickerButtons
+                  busy={pendingPhotos.busy}
+                  disabled={
+                    pendingPhotos.photos.filter((p) => p.itemIndex === null)
+                      .length >= MAX_PHOTOS_PER_GROUP
+                  }
+                  onFiles={(files) => pendingPhotos.add(files, null)}
+                />
+                <PendingPhotoGrid
+                  photos={pendingPhotos.photos.filter(
+                    (p) => p.itemIndex === null
+                  )}
+                  onRemove={pendingPhotos.remove}
+                />
+              </>
+            )}
           </CardContent>
         </Card>
 

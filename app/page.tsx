@@ -39,6 +39,8 @@ import { RealTimeStatusIndicator } from "@/components/real-time-status-indicator
 import { InvoiceDashboardCard } from "@/components/invoice-dashboard-card";
 import { InvoiceStatusManager } from "@/components/invoice-status-manager";
 import { InvoicePrint } from "@/components/invoice-print";
+import { InvoicePhotosWithItems } from "@/components/invoice-photos";
+import { InvoiceMobilePreview } from "@/components/invoice-mobile-preview";
 import type { Invoice } from "@/lib/types";
 import {
   DropdownMenu,
@@ -626,7 +628,18 @@ export default function HomePage() {
               </Button>
             </div>
             <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div>{viewInvoice && <InvoicePrint invoice={viewInvoice} />}</div>
+              <div className="space-y-4">
+                <div className="hidden sm:block">
+                  <InvoicePrint invoice={viewInvoice} />
+                </div>
+                <InvoiceMobilePreview invoice={viewInvoice} />
+                <div className="border-t pt-4">
+                  <InvoicePhotosWithItems
+                    invoiceId={viewInvoice.id}
+                    items={viewInvoice.items}
+                  />
+                </div>
+              </div>
               <div>
                 {viewInvoice && (
                   <InvoiceStatusManager
