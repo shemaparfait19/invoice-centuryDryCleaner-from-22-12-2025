@@ -12,7 +12,9 @@ import { formatCurrency } from "./utils";
 async function buildInvoicePdf(
   invoice: Invoice
 ): Promise<{ pdf: jsPDF; filename: string }> {
-  // Create a temporary container and render the actual InvoicePrint component
+  // Create a temporary container and render the actual InvoicePrint component.
+  // InvoicePrint deliberately contains no clothes photos: those are staff-only
+  // reference shots and must never end up in the client's downloaded PDF.
   const container = document.createElement("div");
   container.style.position = "absolute";
   container.style.left = "-9999px";

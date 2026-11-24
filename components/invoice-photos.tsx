@@ -211,7 +211,10 @@ export function InvoicePhotos({
   const totalBytes = visible.reduce((sum, p) => sum + (p.bytes || 0), 0);
 
   return (
-    <div className={compact ? "space-y-2" : "space-y-3"}>
+    // "no-print" keeps staff-only photos out of anything printed (the
+    // downloaded/printed invoice is built from InvoicePrint, which has no
+    // photos on it).
+    <div className={`no-print ${compact ? "space-y-2" : "space-y-3"}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className={compact ? "text-sm font-medium" : "font-medium"}>
