@@ -114,3 +114,75 @@ export async function deleteInvoicePhoto(photo: InvoicePhoto): Promise<void> {
     .from(INVOICE_PHOTOS_BUCKET)
     .remove([photo.storagePath]);
 }
+
+// ---------------------------------------------------------------------------
+// Everything stored, for the /photos page where old photos get cleared out.
+// ---------------------------------------------------------------------------
+
+export interface InvoicePhotoWithInvoice extends InvoicePhoto {
+  invoiceClientName?: string;
+  invoiceCreatedAt?: string;
+}
+
+interface InvoicePhotoWithInvoiceRow extends InvoicePhotoRow {
+  invoice?: {
+    created_at?: string | null;
+    client?: { name?: string | null } | null;
+  } | null;
+}
+
+export async function listAllInvoicePhotos(): Promise<
+  InvoicePhotoWithInvoice[]
+> {
+  // Page past PostgREST's 1000-row cap so the totals and the page itself
+  // never silently miss the older half of the photos.
+  const pageSize = 1000;
+  const rows: InvoicePhotoWithInvoiceRow[] = [];
+  let page = 0;
+
+  for (;;) {
+    const from = page * pageSize;
+    const to = from + pageSize - 1;
+
+    const { data, error } = await supabase
+      .from("invoice_photos")
+      .select(`*, invoice:invoices(id, created_at, client:clients(name))`)
+      .order("created_at", { ascending: false })
+      .range(from, to);
+
+    if (error) throw new Error(setupHint(error));
+    if (!data || data.length === 0) break;
+
+    rows.push(...(data as unknown as InvoicePhotoWithInvoiceRow[]));
+    if (data.length < pageSize) break;
+    page++;
+  }
+
+  return rows.map((row) => ({
+    ...toPhoto(row),
+    invoiceClientName: row.invoice?.client?.name ?? undefined,
+    invoiceCreatedAt: row.invoice?.created_at ?? undefined,
+  }));
+}
+
+// Removes several photos at once. Files go first: if that fails nothing is
+// lost, and a leftover row without its file can't keep the bucket full.
+export async function deleteInvoicePhotos(
+  photos: InvoicePhoto[]
+): Promise<void> {
+  if (photos.length === 0) return;
+
+  const { error: storageError } = await supabase.storage
+    .from(INVOICE_PHOTOS_BUCKET)
+    .remove(photos.map((photo) => photo.storagePath));
+  if (storageError) throw new Error(storageError.message);
+
+  const { error } = await supabase
+    .from("invoice_photos")
+    .delete()
+    .in(
+      "id",
+      photos.map((photo) => photo.id)
+    );
+  if (error) throw new Error(error.message);
+}

@@ -249,7 +249,7 @@ export function InvoicePhotos({
       ) : visible.length === 0 ? (
         !compact && (
           <p className="text-xs text-muted-foreground">
-            No photos yet. Photos are compressed automatically to save storage.
+            No photos yet. Photos are shrunk to about 4 KB each to save storage.
           </p>
         )
       ) : (

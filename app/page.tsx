@@ -23,6 +23,7 @@ import {
   CalendarClock,
   MoreHorizontal,
   Tag,
+  Images,
 } from "lucide-react";
 import { InvoiceForm } from "@/components/invoice-form";
 import { InvoiceList } from "@/components/invoice-list";
@@ -579,6 +580,11 @@ export default function HomePage() {
                   <DropdownMenuItem asChild>
                     <Link href="/items" className="flex items-center w-full">
                       <Tag className="h-4 w-4 mr-2" /> Items &amp; categories
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/photos" className="flex items-center w-full">
+                      <Images className="h-4 w-4 mr-2" /> Clothes photos
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setCurrentView("setup")}>

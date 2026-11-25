@@ -791,8 +791,8 @@ export function InvoiceForm({ editingId, onSave, onCancel }: InvoiceFormProps) {
               <>
                 <p className="text-sm text-muted-foreground">
                   Take one picture of all the clothes together — handy for
-                  shoes or anything that can't be named. Photos are compressed
-                  automatically to keep storage small.
+                  shoes or anything that can't be named. Photos are shrunk to
+                  about 4 KB each to keep storage small.
                 </p>
                 <PhotoPickerButtons
                   busy={pendingPhotos.busy}
